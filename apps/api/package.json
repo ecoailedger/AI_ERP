@@ -13,6 +13,7 @@
   "dependencies": {
     "@ai-erp/core": "*",
     "@ai-erp/domain": "*",
+    "@ai-erp/scene": "*",
     "fastify": "^5.12.8"
   }
 }

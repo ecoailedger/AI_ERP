@@ -4,5 +4,5 @@
   "private": true,
   "type": "module",
   "scripts": { "generate": "tsx src/index.ts" },
-  "dependencies": { "@ai-erp/domain": "*" }
+  "dependencies": { "@ai-erp/core": "*", "@ai-erp/domain": "*" }
 }

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "source": "dummy",
+  "seed": 20261111,
+  "startDate": "2026-08-03",
+  "endDate": "2026-10-31",
+  "openingCash": 2000000,
+  "simulated": [
+    "creditors",
+    "cash"
+  ]
+}

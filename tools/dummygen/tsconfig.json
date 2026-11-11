@@ -2,5 +2,5 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "outDir": ".tsbuild", "rootDir": "src", "types": ["node"] },
   "include": ["src"],
-  "references": [{ "path": "../../packages/domain" }]
+  "references": [{ "path": "../../packages/domain" }, { "path": "../../packages/core" }]
 }

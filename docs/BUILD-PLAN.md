@@ -57,7 +57,7 @@ The layout is generated deterministically from data:
 
 | Element | Placement rule |
 |---|---|
-| Map | Iso grid with 2:1 tiles (64×32 px). About 160×160 tiles to start |
+| Map | Iso grid with 2:1 tiles (64×32 px). 128×128 tiles |
 | Settlement | Fixed footprint at the centre. Building positions are fixed by design, not by data |
 | Supplier ports | On the map edge. Angle = stable hash of supplier code. Size = open PO value |
 | Customer villages | In rings around the settlement. Angle = stable hash of customer code (later: region). Distance ring = revenue band (biggest closest). Size = trailing 12-month revenue. Only the top N show as villages; the rest group into "small customers" hamlets |
@@ -264,7 +264,7 @@ Each new source replaces a simulated piece and removes fog.
 ## 10. Art and audio
 
 - **Style:** isometric management sim. Clean, warm, readable at a glance. **Original art only.** Do not reference or imitate any specific published game in briefs, prompts or file names.
-- **Grid:** 2:1 iso, 64×32 tiles. A 32-colour palette fixed in `art/palette`.
+- **Grid:** 2:1 iso, 64×32 tiles. The palette is fixed in `apps/client/src/world/palette.ts`.
 - **Stage 1 art set** (fixed, so art doesn't eat the effort):
   - Terrain: grass, road (straight, corner, T, cross), dock, yard.
   - Five buildings, a port, and a village in three sizes.
@@ -285,16 +285,24 @@ Estimates are hours of focused build time with an AI agent. One milestone ≈ on
 | # | Milestone | Est. | Exit test |
 |---|---|---|---|
 | 1.0 ✅ | Scaffold: workspaces, Vite, TS strict, Vitest, lint, `.gitignore` (incl. `data/real`, `.env*`), CI build | 1 h | `npm test` and `npm run dev` both work |
-| 1.1 | `domain` types + `dummygen` with seeded exceptions | 3 h | Same seed → same files. Exception counts match the spec |
-| 1.2 | `core`: load, project state at t, exception flags, resource figures | 4 h | Unit tests: late POs, aged stock and figures computed correctly |
-| 1.3 | `api`: `/state`, `/records`, `/figures`, `/events` | 2 h | Each endpoint returns valid schema |
-| 1.4 | Renderer base: iso grid, camera pan/zoom, tile picking, placeholder art | 4 h | 160×160 map at 60 fps. Clicking a tile shows its coordinates |
-| 1.5 | `scene` world gen: ports, villages, roads, buildings, stockpiles | 4 h | Layout stable across reloads. Adding a supplier moves nothing else |
-| 1.6 | Vehicles: lorries on roads, stalled queue, vans | 3 h | Late POs visibly queued. Counts match core |
-| 1.7 | Workers: task queues, state machine, A*, animation, backlog piles | 5 h | Hovering a worker shows its record. Idle buildings are empty |
-| 1.8 | HUD: resource bar, alerts, record cards, building queue panel, table view | 4 h | Every figure clicks through to records |
-| 1.9 | Time scrubber + replay | 3 h | Scrub 90 days. Replay is identical twice |
-| 1.10 | Stage 1 art pass (fixed set) + polish | 4 h | Shown to 3 people: each names the late suppliers in 30 s, unprompted (PID exit test) |
+| 1.1 ✅ | `domain` types + `dummygen` with seeded exceptions | 3 h | Same seed → same files. Exception counts match the spec |
+| 1.2 ✅ | `core`: load, project state at t, exception flags, resource figures | 4 h | Unit tests: late POs, aged stock and figures computed correctly |
+| 1.3 ✅ | `api`: `/state`, `/records`, `/figures`, `/events` | 2 h | Each endpoint returns valid schema |
+| 1.4 ✅ | Renderer base: iso grid, camera pan/zoom, tile picking, placeholder art | 4 h | 160×160 map at 60 fps. Clicking a tile shows its coordinates |
+| 1.5 ✅ | `scene` world gen: ports, villages, roads, buildings, stockpiles | 4 h | Layout stable across reloads. Adding a supplier moves nothing else |
+| 1.6 ✅ | Vehicles: lorries on roads, stalled queue, vans | 3 h | Late POs visibly queued. Counts match core |
+| 1.7 ✅ | Workers: task queues, state machine, A*, animation, backlog piles | 5 h | Hovering a worker shows its record. Idle buildings are empty |
+| 1.8 ✅ | HUD: resource bar, alerts, record cards, building queue panel, table view | 4 h | Every figure clicks through to records |
+| 1.9 ✅ | Time scrubber + replay | 3 h | Scrub 90 days. Replay is identical twice |
+| 1.10 ◐ | Stage 1 art pass (fixed set) + polish | 4 h | Shown to 3 people: each names the late suppliers in 30 s, unprompted (PID exit test) |
+
+Stage 1 notes (2026-11-11):
+
+- ✅ means built and its exit test met by automated tests or a browser check. See `docs/progress/` for screenshots.
+- **1.10 is half done (◐).** The art set is built, drawn in code as isometric shapes. Still to do: show it to 3 people and time whether each names the late suppliers in 30 seconds. Hand-drawn pixel art has not been started; the code-drawn art may be good enough to skip it.
+- The map is 128×128 tiles, not 160×160. Ports sit on a ring 56 tiles out, which is as far as the layout needs.
+- Frame rate (1.4) was not measured. It ran smoothly in a browser check; nobody has profiled it.
+- Stage 1 runs against the local API, not as a static build. A static demo build is still open.
 
 ### Stage 2: Real data (~12 h)
 

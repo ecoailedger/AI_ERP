@@ -128,11 +128,14 @@ Source tables and columns are mapped in [DATA-MAPPING.md](DATA-MAPPING.md). Do n
 | 2026-11-11 | World is generated from data; no real warehouse layout |
 | 2026-11-11 | All writes go to a sandbox; no live-system writes |
 | 2026-11-11 | Stage 1 runs on dummy data shaped like Slipstream purchase orders |
+| 2026-11-11 | TypeScript throughout: PixiJS world, React panels, Fastify API. Ingest will be Python. See [BUILD-PLAN.md](BUILD-PLAN.md) section 0 |
+| 2026-11-11 | Workers are drawn, each tied to a record in a building's queue. No work, no workers |
+| 2026-11-11 | One canonical dataset shape for every source. Dummy data and the Fabric feed both map into it |
+| 2026-11-11 | Art is drawn in code as isometric shapes. No image assets yet |
 
 ## 12. Open questions
 
 - Slipstream schema and refresh cadence.
 - Which other Fabric tables can feed stock, sales and finance.
-- Client and core technology.
 - Hosting.
 - Advisor model.

@@ -15,7 +15,9 @@ This is a proof of concept. It is not a production ERP and it never writes to a 
 
 ## Status
 
-Stage 1 in progress. Milestone 1.0 (scaffold) is done; 1.1 (domain types and dummy data) is next. See the [build plan](docs/BUILD-PLAN.md#11-milestones).
+Stage 1 (a read-only living world on dummy data) is built. One thing is left before it is signed off: showing it to three people and checking each can name the late suppliers within 30 seconds. See the [build plan](docs/BUILD-PLAN.md#11-milestones) and [HANDOFF.md](HANDOFF.md).
+
+![The world: suppliers round the edge, the settlement in the middle, late lorries queued outside](docs/progress/stage-1-overview.png)
 
 ## Run it
 
@@ -23,6 +25,15 @@ Needs Node 22 or later.
 
 ```
 npm install
-npm run dev      # API on 127.0.0.1:5180, world on http://localhost:5190
+npm run dev      # API on 127.0.0.1:5191, world on http://localhost:5190
 npm run check    # lint, typecheck, tests, build
 ```
+
+In the world:
+
+- Drag to pan, scroll to zoom.
+- Click anything (a lorry, a stockpile, a worker, a building) to see the records behind it.
+- Click a figure in the top bar to see the records that add up to it.
+- Space plays the days back. Left and right arrows step one day.
+
+All data in this repository is synthetic. Regenerate it with `npm run generate -w @ai-erp/dummygen`.

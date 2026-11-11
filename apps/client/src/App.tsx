@@ -1,30 +1,58 @@
-import { useEffect, useState } from 'react';
-import { WorldCanvas } from './WorldCanvas';
+import { useEffect } from 'react';
+import { AlertsPanel } from './hud/AlertsPanel';
+import { FigurePanel } from './hud/FigurePanel';
+import { ResourceBar } from './hud/ResourceBar';
+import { Scrubber } from './hud/Scrubber';
+import { SelectionPanel } from './hud/SelectionPanel';
+import { TableView } from './hud/TableView';
+import { Tooltip } from './hud/Tooltip';
+import { actions, useApp } from './store';
+import { WorldCanvas } from './world/WorldCanvas';
 
-type ApiStatus = 'checking' | 'ok' | 'down';
-
-/** Shell for milestone 1.0: a placeholder world and a HUD strip that proves the API link. */
 export function App() {
-  const [api, setApi] = useState<ApiStatus>('checking');
+  const error = useApp((state) => state.error);
+  const ready = useApp((state) => state.world !== null);
+  const figureOpen = useApp((state) => state.figure !== null);
+  const tableOpen = useApp((state) => state.tableOpen);
 
   useEffect(() => {
-    const controller = new AbortController();
-    fetch('/api/health', { signal: controller.signal })
-      .then((response) => setApi(response.ok ? 'ok' : 'down'))
-      .catch(() => {
-        if (!controller.signal.aborted) setApi('down');
-      });
-    return () => controller.abort();
+    void actions.init();
+  }, []);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.target instanceof HTMLInputElement) return;
+      if (event.key === ' ') {
+        event.preventDefault();
+        actions.togglePlay();
+      } else if (event.key === 'ArrowLeft') actions.step(-1);
+      else if (event.key === 'ArrowRight') actions.step(1);
+      else if (event.key === 'Escape') {
+        actions.select(null);
+        actions.openFigure(null);
+        actions.toggleTable(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   return (
     <>
       <WorldCanvas />
-      <header className="hud">
-        <strong>AI_ERP</strong>
-        <span>Stage 1 scaffold: placeholder world, dummy data only</span>
-        <span className={api === 'ok' ? 'ok' : 'down'}>core: {api}</span>
-      </header>
+      <ResourceBar />
+      {!tableOpen && !figureOpen && <AlertsPanel />}
+      <SelectionPanel />
+      {figureOpen && <FigurePanel />}
+      {tableOpen && <TableView />}
+      <Scrubber />
+      <Tooltip />
+      {error && (
+        <div className="banner" role="alert">
+          <strong>Cannot reach the core.</strong> {error} Start it with <code>npm run dev</code>, then reload.
+        </div>
+      )}
+      {!ready && !error && <div className="banner quiet">Loading the world…</div>}
     </>
   );
 }

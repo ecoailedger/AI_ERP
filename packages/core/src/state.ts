@@ -1,0 +1,416 @@
+/** Builds the world state for one date from a snapshot: entities, queues, exceptions, figures. */
+import {
+  addDays,
+  daysBetween,
+  FIGURE_IDS,
+  type Alert,
+  type BuildingState,
+  type CustomerState,
+  type DockPallet,
+  type FogFlag,
+  type MoneyMovement,
+  type PurchaseOrderState,
+  type QueueItem,
+  type SalesOrderState,
+  type StockpileState,
+  type SupplierState,
+  type WorldState,
+} from '@ai-erp/domain';
+import { figureRecords } from './figures';
+import { money, moneyShort, plural, round2 } from './format';
+import { must, type Model } from './model';
+import { AGE_BAND_DAYS, AGED_VALUE_SHARE, DEBT_CHASE_DAYS, PO_LATE_SERIOUS_DAYS, REVENUE_WINDOW_DAYS } from './rules';
+import { isPaid, type Snapshot } from './snapshot';
+
+function stockpiles(model: Model, snap: Snapshot): StockpileState[] {
+  const piles = new Map<string, StockpileState & { aged: [number, number, number] }>();
+  for (const category of model.ds.categories) {
+    piles.set(category.id, {
+      categoryId: category.id,
+      name: category.name,
+      qty: 0,
+      value: 0,
+      productCount: 0,
+      ageBand: 0,
+      agedValue: 0,
+      untrusted: false,
+      aged: [0, 0, 0],
+    });
+  }
+  for (const product of model.ds.products) {
+    const qty = snap.stockQty.get(product.id) ?? 0;
+    if (qty === 0) continue;
+    const pile = must(piles, product.categoryId, 'category');
+    if (qty < 0) {
+      pile.untrusted = true;
+      continue;
+    }
+    const value = qty * product.unitCost;
+    const age = daysBetween(snap.lastReceipt.get(product.id) ?? snap.asOf, snap.asOf);
+    pile.qty += qty;
+    pile.value += value;
+    pile.productCount += 1;
+    AGE_BAND_DAYS.forEach((days, band) => {
+      if (age > days) pile.aged[band as 0 | 1 | 2] += value;
+    });
+  }
+  return [...piles.values()].map(({ aged, ...pile }) => {
+    let ageBand: StockpileState['ageBand'] = 0;
+    if (pile.value > 0) {
+      if (aged[2] / pile.value >= AGED_VALUE_SHARE) ageBand = 3;
+      else if (aged[1] / pile.value >= AGED_VALUE_SHARE) ageBand = 2;
+      else if (aged[0] / pile.value >= AGED_VALUE_SHARE) ageBand = 1;
+    }
+    return { ...pile, value: round2(pile.value), agedValue: round2(aged[0]), ageBand };
+  });
+}
+
+export function buildState(model: Model, snap: Snapshot): WorldState {
+  const { asOf } = snap;
+  const supplierName = (id: string): string => must(model.supplier, id, 'supplier').name;
+  const customerName = (id: string): string => must(model.customer, id, 'customer').name;
+
+  // ---- Purchase orders and suppliers
+  const purchaseOrders: PurchaseOrderState[] = [];
+  const suppliers = new Map<string, SupplierState>(
+    model.ds.suppliers.map((supplier) => [
+      supplier.id,
+      { id: supplier.id, name: supplier.name, openPoCount: 0, latePoCount: 0, openPoValue: 0, worstDaysLate: 0 },
+    ]),
+  );
+  for (const view of snap.purchaseOrders) {
+    const open = view.qtyOutstanding > 0;
+    if (!open && !view.arrivingToday) continue;
+    purchaseOrders.push({
+      id: view.order.id,
+      supplierId: view.order.supplierId,
+      orderDate: view.order.orderDate,
+      dueDate: view.dueDate,
+      originalDueDate: view.originalDueDate,
+      status: view.status,
+      late: view.late,
+      daysLate: view.daysLate,
+      unacknowledged: view.unacknowledged,
+      arrivingToday: view.arrivingToday,
+      qtyOutstanding: view.qtyOutstanding,
+      value: round2(view.valueOutstanding),
+      lineCount: view.order.lines.length,
+    });
+    if (!open) continue;
+    const supplier = must(suppliers, view.order.supplierId, 'supplier');
+    supplier.openPoCount += 1;
+    supplier.openPoValue = round2(supplier.openPoValue + view.valueOutstanding);
+    if (view.late) {
+      supplier.latePoCount += 1;
+      supplier.worstDaysLate = Math.max(supplier.worstDaysLate, view.daysLate);
+    }
+  }
+
+  // ---- Dock
+  const dock: DockPallet[] = snap.receipts
+    .filter((view) => view.onDock)
+    .map((view) => ({
+      receiptId: view.receipt.id,
+      purchaseOrderId: view.order.id,
+      supplierId: view.order.supplierId,
+      categoryId: view.categoryId,
+      receivedDate: view.receipt.date,
+      daysOnDock: view.daysOnDock,
+      stale: view.stale,
+      qty: view.qty,
+      value: round2(view.value),
+    }));
+
+  // ---- Sales orders and customers
+  const salesOrders: SalesOrderState[] = [];
+  const customers = new Map<string, CustomerState>(
+    model.ds.customers.map((customer) => [
+      customer.id,
+      {
+        id: customer.id,
+        name: customer.name,
+        revenue: 0,
+        balance: 0,
+        creditLimit: customer.creditLimit,
+        onStop: customer.onStopFrom !== null && customer.onStopFrom <= asOf,
+        overLimit: false,
+        openOrderCount: 0,
+      },
+    ]),
+  );
+  for (const view of snap.salesOrders) {
+    const { order } = view;
+    if (order.deliveredDate !== null && order.deliveredDate <= asOf) continue;
+    salesOrders.push({
+      id: order.id,
+      customerId: order.customerId,
+      orderDate: order.orderDate,
+      committedDate: order.committedDate,
+      status: view.status,
+      late: view.late,
+      daysLate: view.daysLate,
+      value: round2(view.value),
+      shippedDate: view.status === 'shipped' ? order.shippedDate : null,
+      deliveredDate: view.status === 'shipped' ? order.deliveredDate : null,
+    });
+    if (view.status !== 'shipped') must(customers, order.customerId, 'customer').openOrderCount += 1;
+  }
+
+  const revenueFrom = addDays(asOf, -REVENUE_WINDOW_DAYS);
+  const overdue = new Map<string, { count: number; amount: number; worst: number }>();
+  const paymentsIn: MoneyMovement[] = [];
+  for (const invoice of snap.salesInvoices) {
+    const customer = must(customers, invoice.customerId, 'customer');
+    if (invoice.date > revenueFrom) customer.revenue += invoice.net;
+    if (invoice.paidDate === asOf) paymentsIn.push({ invoiceId: invoice.id, partyId: invoice.customerId, amount: invoice.net });
+    if (isPaid(invoice, asOf)) continue;
+    customer.balance += invoice.net;
+    const daysOverdue = daysBetween(invoice.dueDate, asOf);
+    if (daysOverdue > DEBT_CHASE_DAYS) {
+      const entry = overdue.get(invoice.customerId) ?? { count: 0, amount: 0, worst: 0 };
+      entry.count += 1;
+      entry.amount += invoice.net;
+      entry.worst = Math.max(entry.worst, daysOverdue);
+      overdue.set(invoice.customerId, entry);
+    }
+  }
+  for (const customer of customers.values()) {
+    customer.revenue = round2(customer.revenue);
+    customer.balance = round2(customer.balance);
+    customer.overLimit = customer.balance > customer.creditLimit;
+  }
+
+  const billsIn: MoneyMovement[] = snap.purchaseInvoices
+    .filter((invoice) => invoice.date === asOf)
+    .map((invoice) => ({ invoiceId: invoice.id, partyId: invoice.supplierId, amount: invoice.net }));
+
+  // ---- Work queues, one per function
+  const goodsIn: QueueItem[] = [];
+  const warehouse: QueueItem[] = [];
+  for (const view of snap.receipts) {
+    const { receipt, order } = view;
+    if (receipt.date === asOf) {
+      goodsIn.push({
+        kind: 'unload',
+        ref: { type: 'goodsReceipt', id: receipt.id },
+        label: `Unloading ${order.id}`,
+        detail: `${supplierName(order.supplierId)}, ${plural(view.qty, 'unit')}`,
+        value: round2(view.value),
+        ageDays: 0,
+        flag: 'ok',
+        categoryId: view.categoryId,
+        partyId: order.supplierId,
+      });
+    }
+    if (receipt.putawayDate === asOf || (view.onDock && receipt.date < asOf)) {
+      warehouse.push({
+        kind: 'putaway',
+        ref: { type: 'goodsReceipt', id: receipt.id },
+        label: `Putting away ${receipt.id}`,
+        detail: view.stale ? `On the dock ${view.daysOnDock} days` : `From ${order.id}`,
+        value: round2(view.value),
+        ageDays: view.daysOnDock,
+        flag: view.stale ? 'late' : 'ok',
+        categoryId: view.categoryId,
+        partyId: order.supplierId,
+      });
+    }
+  }
+
+  const sales: QueueItem[] = [];
+  const dispatch: QueueItem[] = [];
+  let lateSalesOrders = 0;
+  let worstLateOrder: { id: string; days: number } | null = null;
+  for (const view of snap.salesOrders) {
+    const { order } = view;
+    const base = {
+      ref: { type: 'salesOrder' as const, id: order.id },
+      value: round2(view.value),
+      ageDays: daysBetween(order.orderDate, asOf),
+      flag: view.late ? ('late' as const) : ('ok' as const),
+      categoryId: view.categoryId,
+      partyId: order.customerId,
+    };
+    const customer = customerName(order.customerId);
+    if (view.late) {
+      lateSalesOrders += 1;
+      if (!worstLateOrder || view.daysLate > worstLateOrder.days) worstLateOrder = { id: order.id, days: view.daysLate };
+    }
+    if (order.orderDate === asOf) {
+      sales.push({ ...base, kind: 'enter_order', label: `Entering ${order.id}`, detail: customer, flag: 'ok' });
+    }
+    if (view.status === 'back_ordered' && order.orderDate < asOf) {
+      sales.push({
+        ...base,
+        kind: 'chase_stock',
+        label: `Chasing stock for ${order.id}`,
+        detail: view.late ? `${customer}, ${view.daysLate} days past committed date` : `${customer}, waiting for stock`,
+        flag: view.late ? 'late' : 'warn',
+      });
+    }
+    if (view.status === 'allocated' || order.pickedDate === asOf) {
+      warehouse.push({ ...base, kind: 'pick', label: `Picking ${order.id}`, detail: customer });
+    }
+    if (view.status === 'picked' || order.shippedDate === asOf) {
+      dispatch.push({ ...base, kind: 'load', label: `Loading ${order.id}`, detail: customer });
+    }
+  }
+
+  const accounts: QueueItem[] = [];
+  for (const invoice of snap.purchaseInvoices) {
+    const base = {
+      ref: { type: 'purchaseInvoice' as const, id: invoice.id },
+      detail: supplierName(invoice.supplierId),
+      value: round2(invoice.net),
+      ageDays: daysBetween(invoice.date, asOf),
+      flag: 'ok' as const,
+      categoryId: null,
+      partyId: invoice.supplierId,
+    };
+    if (invoice.date === asOf) accounts.push({ ...base, kind: 'match_bill', label: `Matching bill ${invoice.id}` });
+    if (invoice.paidDate === asOf) accounts.push({ ...base, kind: 'pay_bill', label: `Paying ${invoice.id}` });
+  }
+  for (const [customerId, entry] of overdue) {
+    const customer = must(customers, customerId, 'customer');
+    accounts.push({
+      kind: 'chase_debt',
+      ref: { type: 'customer', id: customerId },
+      label: `Chasing ${customer.name}`,
+      detail: `${plural(entry.count, 'invoice')} overdue, ${money(entry.amount)}`,
+      value: round2(entry.amount),
+      ageDays: entry.worst,
+      flag: customer.onStop || entry.worst > 30 ? 'late' : 'warn',
+      categoryId: null,
+      partyId: customerId,
+    });
+  }
+
+  const buildings: BuildingState[] = [
+    { id: 'goodsIn', label: 'Goods-in', queue: goodsIn },
+    { id: 'warehouse', label: 'Warehouse', queue: warehouse },
+    { id: 'sales', label: 'Sales office', queue: sales },
+    { id: 'accounts', label: 'Accounts', queue: accounts },
+    { id: 'dispatch', label: 'Dispatch', queue: dispatch },
+  ];
+
+  // ---- Stock, alerts and fog
+  const piles = stockpiles(model, snap);
+  const alerts: (Alert & { weight: number })[] = [];
+  const fog: FogFlag[] = [];
+
+  for (const supplier of suppliers.values()) {
+    if (supplier.latePoCount === 0) continue;
+    alerts.push({
+      id: `po_late:${supplier.id}`,
+      kind: 'po_late',
+      severity: supplier.worstDaysLate >= PO_LATE_SERIOUS_DAYS ? 'high' : 'medium',
+      title: `${supplier.name} is late`,
+      detail: `${plural(supplier.latePoCount, 'order')} overdue, worst ${plural(supplier.worstDaysLate, 'day')} late`,
+      ref: { type: 'supplier', id: supplier.id },
+      weight: supplier.latePoCount * 10 + supplier.worstDaysLate,
+    });
+  }
+  for (const order of purchaseOrders) {
+    if (!order.unacknowledged) continue;
+    alerts.push({
+      id: `po_unacknowledged:${order.id}`,
+      kind: 'po_unacknowledged',
+      severity: 'medium',
+      title: `${order.id} not confirmed`,
+      detail: `${supplierName(order.supplierId)} has not confirmed it, ${daysBetween(order.orderDate, asOf)} days after ordering`,
+      ref: { type: 'purchaseOrder', id: order.id },
+      weight: daysBetween(order.orderDate, asOf),
+    });
+  }
+  for (const pallet of dock) {
+    if (!pallet.stale) continue;
+    alerts.push({
+      id: `dock_stale:${pallet.receiptId}`,
+      kind: 'dock_stale',
+      severity: 'medium',
+      title: `Delivery stuck on the dock`,
+      detail: `${pallet.receiptId} from ${supplierName(pallet.supplierId)}, ${pallet.daysOnDock} days, ${moneyShort(pallet.value)}`,
+      ref: { type: 'goodsReceipt', id: pallet.receiptId },
+      weight: pallet.daysOnDock,
+    });
+  }
+  for (const pile of piles) {
+    if (pile.untrusted) {
+      const reason = 'A product shows negative stock, so this figure cannot be trusted';
+      fog.push({ scope: 'category', id: pile.categoryId, reason });
+      alerts.push({
+        id: `stock_untrusted:${pile.categoryId}`,
+        kind: 'stock_untrusted',
+        severity: 'high',
+        title: `${pile.name} stock cannot be trusted`,
+        detail: reason,
+        ref: { type: 'category', id: pile.categoryId },
+        weight: 1000,
+      });
+    }
+    if (pile.ageBand >= 1) {
+      alerts.push({
+        id: `stock_aged:${pile.categoryId}`,
+        kind: 'stock_aged',
+        severity: 'medium',
+        title: `${pile.name} stock is ageing`,
+        detail: `${moneyShort(pile.agedValue)} not received for over ${AGE_BAND_DAYS[(pile.ageBand - 1) as 0 | 1 | 2]} days`,
+        ref: { type: 'category', id: pile.categoryId },
+        weight: pile.ageBand,
+      });
+    }
+  }
+  if (lateSalesOrders > 0 && worstLateOrder) {
+    alerts.push({
+      id: 'so_late',
+      kind: 'so_late',
+      severity: lateSalesOrders >= 20 ? 'high' : 'medium',
+      title: `${plural(lateSalesOrders, 'sales order')} past committed date`,
+      detail: `Worst is ${worstLateOrder.id}, ${plural(worstLateOrder.days, 'day')} late`,
+      ref: { type: 'salesOrder', id: worstLateOrder.id },
+      weight: lateSalesOrders,
+    });
+  }
+  for (const customer of customers.values()) {
+    if (customer.onStop) {
+      alerts.push({
+        id: `customer_on_stop:${customer.id}`,
+        kind: 'customer_on_stop',
+        severity: 'high',
+        title: `${customer.name} is on stop`,
+        detail: `Owes ${money(customer.balance)}`,
+        ref: { type: 'customer', id: customer.id },
+        weight: customer.balance / 1000,
+      });
+    } else if (customer.overLimit) {
+      alerts.push({
+        id: `customer_over_limit:${customer.id}`,
+        kind: 'customer_over_limit',
+        severity: 'medium',
+        title: `${customer.name} is over its credit limit`,
+        detail: `Owes ${money(customer.balance)} against a limit of ${money(customer.creditLimit)}`,
+        ref: { type: 'customer', id: customer.id },
+        weight: (customer.balance - customer.creditLimit) / 1000,
+      });
+    }
+  }
+  alerts.sort(
+    (a, b) => Number(b.severity === 'high') - Number(a.severity === 'high') || b.weight - a.weight || a.id.localeCompare(b.id),
+  );
+
+  return {
+    asOf,
+    figures: FIGURE_IDS.map((id) => figureRecords(model, snap, id).figure),
+    suppliers: [...suppliers.values()],
+    customers: [...customers.values()],
+    purchaseOrders,
+    dock,
+    stockpiles: piles,
+    salesOrders,
+    paymentsIn,
+    billsIn,
+    buildings,
+    alerts: alerts.map(({ id, kind, severity, title, detail, ref }): Alert => ({ id, kind, severity, title, detail, ref })),
+    fog,
+  };
+}

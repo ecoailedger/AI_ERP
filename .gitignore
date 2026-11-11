@@ -21,3 +21,6 @@ data/real/
 .DS_Store
 Thumbs.db
 *.log
+
+# Browser test tool output
+.playwright-mcp/
