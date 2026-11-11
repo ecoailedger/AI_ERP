@@ -1,0 +1,11 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/domain" },
+    { "path": "packages/core" },
+    { "path": "packages/scene" },
+    { "path": "apps/api" },
+    { "path": "apps/client" },
+    { "path": "tools/dummygen" }
+  ]
+}

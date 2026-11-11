@@ -1,0 +1,23 @@
+node_modules/
+dist/
+.tsbuild/
+coverage/
+*.tsbuildinfo
+
+# Real data never goes in this public repo (CONTEXT section 6)
+data/real/
+*.parquet
+*.sqlite
+*.db
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log

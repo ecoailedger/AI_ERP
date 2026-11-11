@@ -284,7 +284,7 @@ Estimates are hours of focused build time with an AI agent. One milestone ≈ on
 
 | # | Milestone | Est. | Exit test |
 |---|---|---|---|
-| 1.0 | Scaffold: workspaces, Vite, TS strict, Vitest, lint, `.gitignore` (incl. `data/real`, `.env*`), CI build | 1 h | `npm test` and `npm run dev` both work |
+| 1.0 ✅ | Scaffold: workspaces, Vite, TS strict, Vitest, lint, `.gitignore` (incl. `data/real`, `.env*`), CI build | 1 h | `npm test` and `npm run dev` both work |
 | 1.1 | `domain` types + `dummygen` with seeded exceptions | 3 h | Same seed → same files. Exception counts match the spec |
 | 1.2 | `core`: load, project state at t, exception flags, resource figures | 4 h | Unit tests: late POs, aged stock and figures computed correctly |
 | 1.3 | `api`: `/state`, `/records`, `/figures`, `/events` | 2 h | Each endpoint returns valid schema |

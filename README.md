@@ -15,4 +15,14 @@ This is a proof of concept. It is not a production ERP and it never writes to a 
 
 ## Status
 
-Initiation. No code yet. Stage 1 (read-only living world on dummy data) is next.
+Stage 1 in progress. Milestone 1.0 (scaffold) is done; 1.1 (domain types and dummy data) is next. See the [build plan](docs/BUILD-PLAN.md#11-milestones).
+
+## Run it
+
+Needs Node 22 or later.
+
+```
+npm install
+npm run dev      # API on 127.0.0.1:5180, world on http://localhost:5190
+npm run check    # lint, typecheck, tests, build
+```
