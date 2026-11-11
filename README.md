@@ -12,6 +12,7 @@ This is a proof of concept. It is not a production ERP and it never writes to a 
 - [Context](docs/CONTEXT.md): the concept, domain, design rules and guardrails. Read this before writing any code, human or AI agent.
 - [Data mapping](docs/DATA-MAPPING.md): every Fabric table and column the world needs, with gaps. Section 11 records what the mirror was found to hold.
 - [Build plan](docs/BUILD-PLAN.md): stack, sim people, world generation, architecture, data connections, milestones.
+- [People plan](docs/PEOPLE-PLAN.md): the next phase. Makes each person's working day the subject, with goods in the background.
 
 ## Status
 
