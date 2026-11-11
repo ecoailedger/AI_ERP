@@ -6,7 +6,7 @@ Updated 2026-11-11.
 
 - **Stage 1 is built.** Milestones 1.0 to 1.9 done, 1.10 half done (the people test is outstanding).
 - **Stage 2 has started.** The world runs on a real look-back from the UK orders mirror: 1 October to 10 November 2026. Milestone 2.1 is done, 2.2 is half done, 2.3 and 2.4 are not started.
-- `npm run check` passes: lint, typecheck, 75 tests, client build.
+- `npm run check` passes: lint, typecheck, 80 tests, client build.
 
 ## Run it
 

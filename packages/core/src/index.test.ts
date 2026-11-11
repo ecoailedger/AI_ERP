@@ -12,6 +12,7 @@ function fixture(): Dataset {
       startDate: '2026-09-01',
       endDate: '2026-09-30',
       openingCash: 1000,
+      site: null,
       simulated: ['cash'],
     },
     suppliers: [
@@ -19,8 +20,8 @@ function fixture(): Dataset {
       { id: 'S2', name: 'Supplier Two', leadTimeDays: 15 },
     ],
     customers: [
-      { id: 'C1', name: 'Customer One', creditLimit: 100, termsDays: 30, onStopFrom: null },
-      { id: 'C2', name: 'Customer Two', creditLimit: 5000, termsDays: 30, onStopFrom: '2026-09-10' },
+      { id: 'C1', name: 'Customer One', creditLimit: 100, termsDays: 30, onStopFrom: null, location: null },
+      { id: 'C2', name: 'Customer Two', creditLimit: 5000, termsDays: 30, onStopFrom: '2026-09-10', location: { lat: 53.5, lon: -2.2 } },
     ],
     categories: [
       { id: 'K1', name: 'Cables' },
@@ -128,6 +129,16 @@ describe('purchase orders', () => {
   it('flags an order the supplier has not confirmed', () => {
     expect(core.state('2026-09-07').purchaseOrders.find((po) => po.id === 'PO2')?.unacknowledged).toBe(false);
     expect(core.state('2026-09-08').purchaseOrders.find((po) => po.id === 'PO2')).toMatchObject({ unacknowledged: true, status: 'raised' });
+  });
+
+  it('treats an order long past its due date as stale, not late', () => {
+    // PO2 was due on 20 September and never arrives.
+    expect(core.state('2026-12-19').purchaseOrders.find((po) => po.id === 'PO2')).toMatchObject({ late: true, stale: false, daysLate: 90 });
+    const state = core.state('2026-12-20');
+    expect(state.purchaseOrders.find((po) => po.id === 'PO2')).toMatchObject({ late: false, stale: true, daysLate: 91 });
+    expect(state.suppliers.find((s) => s.id === 'S2')).toMatchObject({ latePoCount: 0, stalePoCount: 1 });
+    expect(state.alerts.some((alert) => alert.kind === 'po_stale')).toBe(true);
+    expect(state.alerts.some((alert) => alert.kind === 'po_late' && alert.ref.id === 'S2')).toBe(false);
   });
 
   it('shows an order on the day it arrives, then drops it', () => {
@@ -289,6 +300,8 @@ describe('master', () => {
     const master = core.master();
     expect(master.range).toEqual({ start: '2026-09-01', end: '2026-09-30' });
     expect(master.customers.find((c) => c.id === 'C1')?.rank).toBe(1);
+    expect(master.customers.find((c) => c.id === 'C2')?.location).toEqual({ lat: 53.5, lon: -2.2 });
+    expect(master.site).toBeNull();
     expect(core.clamp('2027-01-01')).toBe('2026-09-30');
   });
 });

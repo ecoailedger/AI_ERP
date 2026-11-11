@@ -137,6 +137,11 @@ export const actions = {
     actions.setDate(next, 0);
   },
 
+  /** Shows a failure to the user instead of leaving a blank screen. */
+  reportError(error: unknown): void {
+    fail(error);
+  },
+
   select(selection: Selection | null): void {
     set({ selection });
   },

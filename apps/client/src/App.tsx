@@ -49,7 +49,7 @@ export function App() {
       <Tooltip />
       {error && (
         <div className="banner" role="alert">
-          <strong>Cannot reach the core.</strong> {error} Start it with <code>npm run dev</code>, then reload.
+          <strong>Something went wrong.</strong> {error} Check <code>npm run dev</code> is running, then reload.
         </div>
       )}
       {!ready && !error && <div className="banner quiet">Loading the world…</div>}

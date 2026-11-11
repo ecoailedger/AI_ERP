@@ -31,14 +31,21 @@ function tables(world: WorldState): Table[] {
     {
       id: 'late',
       label: 'Late suppliers',
-      columns: ['Supplier', 'Late orders', 'Worst', 'Open orders', 'Value on order'],
+      columns: ['Supplier', 'Late orders', 'Worst', 'Stale orders', 'Open orders', 'Value on order'],
       rows: world.suppliers
         .filter((entry) => entry.latePoCount > 0)
         .sort((a, b) => b.latePoCount - a.latePoCount || b.worstDaysLate - a.worstDaysLate)
         .map((entry) => ({
           ref: { type: 'supplier', id: entry.id },
           flag: 'late',
-          cells: [entry.name, String(entry.latePoCount), `${entry.worstDaysLate} days`, String(entry.openPoCount), money(entry.openPoValue)],
+          cells: [
+            entry.name,
+            String(entry.latePoCount),
+            `${entry.worstDaysLate} days`,
+            String(entry.stalePoCount),
+            String(entry.openPoCount),
+            money(entry.openPoValue),
+          ],
         })),
     },
     {
@@ -50,13 +57,19 @@ function tables(world: WorldState): Table[] {
         .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
         .map((order) => ({
           ref: { type: 'purchaseOrder', id: order.id },
-          flag: order.late ? 'late' : order.unacknowledged || order.dueUnknown ? 'warn' : 'ok',
+          flag: order.late ? 'late' : order.unacknowledged || order.dueUnknown || order.stale ? 'warn' : 'ok',
           cells: [
             order.id,
             supplier.get(order.supplierId) ?? order.supplierId,
             order.orderDate,
             order.dueUnknown ? 'Not held' : order.dueDate,
-            order.late ? `${order.daysLate} days late` : order.dueUnknown ? 'No due date' : PO_STATUS[order.status],
+            order.late
+              ? `${order.daysLate} days late`
+              : order.stale
+                ? `Stale, ${order.daysLate} days overdue`
+                : order.dueUnknown
+                  ? 'No due date'
+                  : PO_STATUS[order.status],
             money(order.value),
           ],
         })),
@@ -70,13 +83,17 @@ function tables(world: WorldState): Table[] {
         .sort((a, b) => a.committedDate.localeCompare(b.committedDate))
         .map((order) => ({
           ref: { type: 'salesOrder', id: order.id },
-          flag: order.late ? 'late' : order.status === 'back_ordered' ? 'warn' : 'ok',
+          flag: order.late ? 'late' : order.stale || order.status === 'back_ordered' ? 'warn' : 'ok',
           cells: [
             order.id,
             customer.get(order.customerId) ?? order.customerId,
             order.orderDate,
             order.committedDate >= UNKNOWN_DATE ? 'Not held' : order.committedDate,
-            order.late ? `${SO_STATUS[order.status]}, ${order.daysLate} days late` : SO_STATUS[order.status],
+            order.late
+              ? `${SO_STATUS[order.status]}, ${order.daysLate} days late`
+              : order.stale
+                ? `Stale, ${order.daysLate} days past committed date`
+                : SO_STATUS[order.status],
             money(order.value),
           ],
         })),

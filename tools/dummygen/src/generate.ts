@@ -65,6 +65,8 @@ const PO_CHANCE_PER_SUPPLIER_DAY = 0.4;
 const UNACKNOWLEDGED_RATE = 0.015;
 const PARTIAL_RECEIPT_RATE = 0.08;
 const OPENING_CASH = 2_000_000;
+/** An invented site, roughly in the middle of Great Britain. Customers are scattered round it. */
+const SITE = { lat: 52.5, lon: -1.5 };
 /** How far below zero the seeded bad stock row goes. Enough to make its category untrustworthy. */
 const NEGATIVE_STOCK_UNITS = 60;
 
@@ -89,6 +91,17 @@ interface ProductSim {
 interface PlannedReceipt {
   order: PurchaseOrder;
   lines: { line: number; qty: number }[];
+}
+
+/** A point up to about 550 km from the site. Most are near; a few are far. */
+function scatter(turn: number, spread: number): { lat: number; lon: number } {
+  const km = 10 + 540 * spread ** 1.8;
+  const angle = turn * Math.PI * 2;
+  const round = (value: number): number => Math.round(value * 1000) / 1000;
+  return {
+    lat: round(SITE.lat + (km * Math.cos(angle)) / 110.57),
+    lon: round(SITE.lon + (km * Math.sin(angle)) / (111.32 * Math.cos((SITE.lat * Math.PI) / 180))),
+  };
 }
 
 export function generate(options: GenerateOptions = DEFAULT_OPTIONS): Dataset {
@@ -202,6 +215,8 @@ export function generate(options: GenerateOptions = DEFAULT_OPTIONS): Dataset {
   const overLimit = new Set(rng.shuffle(Array.from({ length: 36 }, (_, index) => index + 4)).slice(0, SPEC.customersOverLimit));
   const stopCandidates = Array.from({ length: 38 }, (_, index) => index + 7).filter((index) => !overLimit.has(index));
   const onStop = new Set(rng.shuffle(stopCandidates).slice(0, SPEC.customersOnStop));
+  // Locations come from their own random stream, so adding them leaves every other generated value as it was.
+  const geo = createRng(options.seed + 1);
   const customers: Customer[] = customerWeights.map((weight, index) => {
     const termsDays = rng.pick([30, 30, 30, 30, 14, 45, 60] as const);
     const expectedBalance = dailySalesValue * (weight / customerWeightTotal) * termsDays;
@@ -212,6 +227,7 @@ export function generate(options: GenerateOptions = DEFAULT_OPTIONS): Dataset {
       creditLimit: overLimit.has(index) ? Math.max(1000, Math.round(limit * 0.2)) : limit,
       termsDays,
       onStopFrom: onStop.has(index) ? addDays(options.startDate, rng.int(35, 60)) : null,
+      location: scatter(geo.next(), geo.next()),
     };
   });
 
@@ -457,6 +473,7 @@ export function generate(options: GenerateOptions = DEFAULT_OPTIONS): Dataset {
       startDate: options.startDate,
       endDate,
       openingCash: OPENING_CASH,
+      site: SITE,
       simulated: ['creditors', 'cash'],
     },
     suppliers,

@@ -46,6 +46,7 @@ describe('dataset schema', () => {
         startDate: '03/08/2026',
         endDate: '2026-10-31',
         openingCash: 0,
+        site: null,
         simulated: [],
       },
       suppliers: [],

@@ -6,7 +6,7 @@ import type { BuildingId } from '@ai-erp/domain';
 import { findPath, type WalkGrid } from './astar';
 import type { Tile } from './iso';
 
-export const MAP_SIZE = 128;
+export const MAP_SIZE = 192;
 export const SETTLEMENT_SIZE = 30;
 /** Map tile of the settlement's top corner. */
 export const SETTLEMENT_ORIGIN = (MAP_SIZE - SETTLEMENT_SIZE) / 2;
@@ -76,7 +76,7 @@ export const GATES: Record<GateId, Tile> = {
 };
 
 /** Late lorries queue here, outside the west side, oldest first. */
-export const STALLED_SLOTS: Tile[] = [-3, -5].flatMap((lx) =>
+export const STALLED_SLOTS: Tile[] = [-3, -5, -7, -9].flatMap((lx) =>
   Array.from({ length: 26 }, (_, i) => i + 2)
     .filter((ly) => ly < 13 || ly > 17)
     .map((ly) => local(lx, ly)),

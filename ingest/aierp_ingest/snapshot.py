@@ -10,11 +10,13 @@ REBUILT below and written into the dataset's meta so the world can say what is s
 """
 import argparse
 import json
+import os
 from datetime import date, timedelta
 
 import pandas as pd
 
 from .config import REAL_DIR
+from .postcodes import area_of, locate
 from .pull import pull_all
 
 SCHEMA_VERSION = 1
@@ -31,6 +33,7 @@ REBUILT = [
     "A sales order is split into one shipment per invoice, shipped on the invoice date. Picking is assumed the same day, allocation the working day before.",
     "A purchase order with no confirmation date is treated as confirmed when raised: confirmations are not reliably recorded.",
     "Customers on stop today are shown on stop for the whole period.",
+    "A customer is placed by the postcode area it has most deliveries to, or failing that its account address. Positions are to the nearest postcode area. Customers outside the UK have no position.",
     "Customer payments, supplier bills and supplier payments are not in the feed. Debtors, creditors and cash are simulated: every invoice is paid on its due date.",
 ]
 
@@ -283,6 +286,26 @@ def build(start: str, end: str, real_names: bool, refresh: bool) -> tuple[dict, 
     terms_seen: dict[str, list[int]] = {}
     for invoice in sales_invoices:
         terms_seen.setdefault(invoice["customerId"], []).append((date.fromisoformat(invoice["dueDate"]) - date.fromisoformat(invoice["date"])).days)
+    # Where each customer is: the postcode area most of its deliveries go to, else its account address.
+    delivery_areas = raw["so_headers"].assign(area=raw["so_headers"]["delivery_postcode"].map(area_of)).dropna(subset=["area"])
+    usual_area = delivery_areas.groupby("customer")["area"].agg(lambda areas: areas.mode().iloc[0]).to_dict()
+
+    def customer_location(customer: str, row) -> dict | None:
+        area = usual_area.get(customer)
+        if area is not None:
+            return locate(f"{area}1")
+        return locate(row["postcode"]) if row is not None else None
+
+    # The site is the stock location holding the most stock, unless .env names a postcode.
+    busiest = raw["stock_by_location"].sort_values("qty", ascending=False)["loc"]
+    location_postcodes = raw["locations"].set_index("loc")["postcode"].to_dict()
+    site = locate(os.environ.get("AI_ERP_SITE_POSTCODE"))
+    for loc in busiest:
+        if site is not None:
+            break
+        site = locate(location_postcodes.get(loc))
+    notes["customers with no position: outside the UK or no usable postcode"] = 0
+
     on_stop_from = add_days(start, -1)
     customers = []
     for customer in customer_ids:
@@ -292,7 +315,10 @@ def build(start: str, end: str, real_names: bool, refresh: bool) -> tuple[dict, 
             "id": customer, "name": customer_name(customer), "creditLimit": money(limit),
             "termsDays": median(terms_seen.get(customer, []), 30),
             "onStopFrom": on_stop_from if row is not None and row["stop"] == "Y" else None,
+            "location": customer_location(customer, row),
         })
+        if customers[-1]["location"] is None:
+            notes["customers with no position: outside the UK or no usable postcode"] += 1
 
     dataset = {
         "meta": {
@@ -302,6 +328,7 @@ def build(start: str, end: str, real_names: bool, refresh: bool) -> tuple[dict, 
             "startDate": start,
             "endDate": end,
             "openingCash": 0,
+            "site": site,
             "simulated": ["debtors", "creditors", "cash"],
         },
         "suppliers": suppliers,

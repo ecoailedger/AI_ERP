@@ -40,6 +40,7 @@ export function recordCard(model: Model, snap: Snapshot, ref: RecordRef): Record
       const supplier = model.supplier.get(order.supplierId);
       let status: Status;
       if (view.late) status = { text: `Late by ${plural(view.daysLate, 'day')}`, flag: 'late' };
+      else if (view.stale) status = { text: `${view.daysLate} days overdue: probably never closed`, flag: 'warn' };
       else if (view.dueUnknown) status = { text: 'No due date held', flag: 'warn' };
       else if (view.unacknowledged) status = { text: 'Supplier has not confirmed', flag: 'warn' };
       else if (view.status === 'received') status = { text: 'Received in full', flag: 'ok' };
@@ -117,6 +118,7 @@ export function recordCard(model: Model, snap: Snapshot, ref: RecordRef): Record
       const delivered = order.deliveredDate !== null && order.deliveredDate <= asOf;
       let status: Status;
       if (view.late) status = { text: `Past committed date by ${plural(view.daysLate, 'day')}`, flag: 'late' };
+      else if (view.stale) status = { text: `${view.daysLate} days past committed date: probably never closed`, flag: 'warn' };
       else if (delivered) status = { text: 'Delivered', flag: 'ok' };
       else if (view.status === 'shipped') status = { text: 'On its way to the customer', flag: 'ok' };
       else if (view.status === 'picked') status = { text: 'Picked, waiting to ship', flag: 'ok' };
@@ -228,13 +230,13 @@ export function recordCard(model: Model, snap: Snapshot, ref: RecordRef): Record
           rows: open.map((view) => [
             view.order.id,
             view.dueDate,
-            view.late ? `${view.daysLate} days late` : view.dueUnknown ? 'No due date' : view.status === 'raised' ? 'Not confirmed' : 'On its way',
+            view.late ? `${view.daysLate} days late` : view.stale ? `Stale, ${view.daysLate} days overdue` : view.dueUnknown ? 'No due date' : view.status === 'raised' ? 'Not confirmed' : 'On its way',
             money(view.valueOutstanding),
           ]),
         },
         related: open.map((view) => ({
           ref: { type: 'purchaseOrder' as const, id: view.order.id },
-          label: view.late ? `${view.order.id}, ${view.daysLate} days late` : view.order.id,
+          label: view.late ? `${view.order.id}, ${view.daysLate} days late` : view.stale ? `${view.order.id}, stale` : view.order.id,
         })),
       });
     }

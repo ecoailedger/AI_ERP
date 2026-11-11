@@ -10,6 +10,9 @@ const id = z.string().min(1);
 const money = z.number();
 const quantity = z.number();
 
+/** A point on the earth. Only ever as precise as the source allows: often just a postcode area. */
+export const GeoPointSchema = z.object({ lat: z.number(), lon: z.number() });
+
 export const SupplierSchema = z.object({
   id,
   name: z.string(),
@@ -24,6 +27,8 @@ export const CustomerSchema = z.object({
   termsDays: z.number().int().positive(),
   /** Date the account went on stop, or null if trading normally. */
   onStopFrom: isoDate.nullable(),
+  /** Where the customer is, or null if the source does not say. */
+  location: GeoPointSchema.nullable(),
 });
 
 export const ProductCategorySchema = z.object({ id, name: z.string() });
@@ -121,6 +126,8 @@ export const DatasetMetaSchema = z.object({
   startDate: isoDate,
   endDate: isoDate,
   openingCash: money,
+  /** Where the company site is. Customers are placed on the map relative to it. */
+  site: GeoPointSchema.nullable(),
   /** Entities with no real source yet, simulated in the sandbox. */
   simulated: z.array(z.string()),
 });
@@ -139,6 +146,7 @@ export const DatasetSchema = z.object({
   purchaseInvoices: z.array(PurchaseInvoiceSchema),
 });
 
+export type GeoPoint = z.infer<typeof GeoPointSchema>;
 export type Supplier = z.infer<typeof SupplierSchema>;
 export type Customer = z.infer<typeof CustomerSchema>;
 export type ProductCategory = z.infer<typeof ProductCategorySchema>;

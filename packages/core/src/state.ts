@@ -25,6 +25,7 @@ import {
   DEBT_CHASE_DAYS,
   PO_LATE_SERIOUS_DAYS,
   REVENUE_WINDOW_DAYS,
+  STALE_DAYS,
   UNTRUSTED_VALUE_SHARE,
 } from './rules';
 import { isPaid, type Snapshot } from './snapshot';
@@ -86,7 +87,7 @@ export function buildState(model: Model, snap: Snapshot): WorldState {
   const suppliers = new Map<string, SupplierState>(
     model.ds.suppliers.map((supplier) => [
       supplier.id,
-      { id: supplier.id, name: supplier.name, openPoCount: 0, latePoCount: 0, openPoValue: 0, worstDaysLate: 0 },
+      { id: supplier.id, name: supplier.name, openPoCount: 0, latePoCount: 0, stalePoCount: 0, openPoValue: 0, worstDaysLate: 0 },
     ]),
   );
   for (const view of snap.purchaseOrders) {
@@ -100,6 +101,7 @@ export function buildState(model: Model, snap: Snapshot): WorldState {
       originalDueDate: view.originalDueDate,
       status: view.status,
       late: view.late,
+      stale: view.stale,
       daysLate: view.daysLate,
       unacknowledged: view.unacknowledged,
       dueUnknown: view.dueUnknown,
@@ -116,6 +118,7 @@ export function buildState(model: Model, snap: Snapshot): WorldState {
       supplier.latePoCount += 1;
       supplier.worstDaysLate = Math.max(supplier.worstDaysLate, view.daysLate);
     }
+    if (view.stale) supplier.stalePoCount += 1;
   }
 
   // ---- Dock
@@ -160,6 +163,7 @@ export function buildState(model: Model, snap: Snapshot): WorldState {
       committedDate: order.committedDate,
       status: view.status,
       late: view.late,
+      stale: view.stale,
       daysLate: view.daysLate,
       value: round2(view.value),
       shippedDate: view.status === 'shipped' ? order.shippedDate : null,
@@ -231,6 +235,7 @@ export function buildState(model: Model, snap: Snapshot): WorldState {
 
   const sales: QueueItem[] = [];
   const dispatch: QueueItem[] = [];
+  let staleSalesOrders = 0;
   let lateSalesOrders = 0;
   let worstLateOrder: { id: string; days: number } | null = null;
   for (const view of snap.salesOrders) {
@@ -244,6 +249,7 @@ export function buildState(model: Model, snap: Snapshot): WorldState {
       partyId: order.customerId,
     };
     const customer = customerName(order.customerId);
+    if (view.stale) staleSalesOrders += 1;
     if (view.late) {
       lateSalesOrders += 1;
       if (!worstLateOrder || view.daysLate > worstLateOrder.days) worstLateOrder = { id: order.id, days: view.daysLate };
@@ -333,6 +339,31 @@ export function buildState(model: Model, snap: Snapshot): WorldState {
       detail: `${supplierName(order.supplierId)} has not confirmed it, ${daysBetween(order.orderDate, asOf)} days after ordering`,
       ref: { type: 'purchaseOrder', id: order.id },
       weight: daysBetween(order.orderDate, asOf),
+    });
+  }
+  const stalePurchaseOrders = purchaseOrders.filter((order) => order.stale);
+  if (stalePurchaseOrders.length > 0) {
+    const oldest = stalePurchaseOrders.reduce((worst, order) => (order.daysLate > worst.daysLate ? order : worst));
+    alerts.push({
+      id: 'po_stale',
+      kind: 'po_stale',
+      severity: 'medium',
+      title: `${plural(stalePurchaseOrders.length, 'purchase order')} over ${STALE_DAYS} days overdue`,
+      detail: `Probably never closed, so not counted as late. Oldest is ${oldest.id}, ${oldest.daysLate} days`,
+      ref: { type: 'purchaseOrder', id: oldest.id },
+      weight: 500,
+    });
+  }
+  if (staleSalesOrders > 0) {
+    const oldest = salesOrders.filter((order) => order.stale).reduce((worst, order) => (order.daysLate > worst.daysLate ? order : worst));
+    alerts.push({
+      id: 'so_stale',
+      kind: 'so_stale',
+      severity: 'medium',
+      title: `${plural(staleSalesOrders, 'sales order')} over ${STALE_DAYS} days past committed date`,
+      detail: `Probably never closed, so not counted as late. Oldest is ${oldest.id}, ${oldest.daysLate} days`,
+      ref: { type: 'salesOrder', id: oldest.id },
+      weight: 499,
     });
   }
   const noDueDate = new Map<string, number>();

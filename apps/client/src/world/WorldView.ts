@@ -11,6 +11,7 @@ import {
   DOCK,
   LOADING,
   MAP_SIZE,
+  PORT_RADIUS,
   screenToTile,
   SETTLEMENT_ORIGIN,
   SETTLEMENT_SIZE,
@@ -91,6 +92,9 @@ const STYLES: Record<LabelStyle, { text: TextStyleOptions; background: number | 
   badge: { text: { fontFamily: 'system-ui, Segoe UI, sans-serif', fontSize: 11, fontWeight: '700', fill: 0x1f1a14 }, background: 0xfdf7e6 },
   ground: { text: { fontFamily: 'system-ui, Segoe UI, sans-serif', fontSize: 12, fontWeight: '700', fill: 0xfdf7e6 }, background: null },
 };
+
+/** How many late suppliers are named on the map when the camera is far out. */
+const NAMED_LATE_PORTS = 8;
 
 /** Workers are drawn once the camera is at least this close. */
 const WORKER_ZOOM = 0.42;
@@ -284,7 +288,7 @@ export class WorldView {
   private fitWorld(): void {
     const { width, height } = this.app.screen;
     // Fit the outer ring of ports, leaving room for the HUD at the top and bottom.
-    const reach = 61 * Math.SQRT2;
+    const reach = (PORT_RADIUS + 5) * Math.SQRT2;
     const fit = Math.min(width / (reach * TILE_WIDTH), (height - 190) / (reach * TILE_HEIGHT)) * 0.94;
     this.minZoom = clamp(fit * 0.8, 0.08, 0.5);
     this.zoom = clamp(fit, this.minZoom, 2.4);
@@ -495,6 +499,14 @@ export class WorldView {
 
     // Suppliers
     const portState = new Map(frame.ports.map((port) => [port.key, port]));
+    // From far out, only the worst offenders are named. The rest show their late count alone.
+    const named = new Set(
+      [...frame.ports]
+        .filter((port) => port.lateCount > 0)
+        .sort((a, b) => b.lateCount - a.lateCount || b.worstDaysLate - a.worstDaysLate)
+        .slice(0, NAMED_LATE_PORTS)
+        .map((port) => port.key),
+    );
     for (const port of layout.ports) {
       const sprite = portState.get(port.key);
       if (!sprite) continue;
@@ -519,7 +531,7 @@ export class WorldView {
       if (sprite.lateCount > 0) {
         specs.push({
           key: `port:${port.key}`,
-          text: `${port.name}: ${sprite.lateCount} late`,
+          text: close || named.has(port.key) ? `${port.name}: ${sprite.lateCount} late` : String(sprite.lateCount),
           x: centre.x,
           y: centre.y - 96 - 14 / zoom,
           style: 'alert',

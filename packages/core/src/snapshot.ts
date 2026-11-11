@@ -15,7 +15,7 @@ import {
   type SalesOrderStatus,
 } from '@ai-erp/domain';
 import { must, type Model } from './model';
-import { DOCK_STALE_DAYS, UNACKNOWLEDGED_DAYS } from './rules';
+import { DOCK_STALE_DAYS, STALE_DAYS, UNACKNOWLEDGED_DAYS } from './rules';
 
 export interface PurchaseOrderView {
   order: PurchaseOrder;
@@ -26,6 +26,7 @@ export interface PurchaseOrderView {
   originalDueDate: IsoDate;
   status: PurchaseOrderStatus;
   late: boolean;
+  stale: boolean;
   daysLate: number;
   unacknowledged: boolean;
   dueUnknown: boolean;
@@ -49,6 +50,7 @@ export interface SalesOrderView {
   value: number;
   status: SalesOrderStatus;
   late: boolean;
+  stale: boolean;
   daysLate: number;
   /** Category holding most of the order's value. */
   categoryId: string;
@@ -105,7 +107,9 @@ function viewPurchaseOrder(model: Model, order: PurchaseOrder, asOf: IsoDate): P
   else status = 'raised';
 
   const dueUnknown = qtyOutstanding > 0 && dueDate >= UNKNOWN_DATE;
-  const late = qtyOutstanding > 0 && dueDate < asOf;
+  const overdue = qtyOutstanding > 0 && dueDate < asOf ? daysBetween(dueDate, asOf) : 0;
+  const stale = overdue > STALE_DAYS;
+  const late = overdue > 0 && !stale;
   return {
     order,
     receivedByLine,
@@ -115,7 +119,8 @@ function viewPurchaseOrder(model: Model, order: PurchaseOrder, asOf: IsoDate): P
     originalDueDate,
     status,
     late,
-    daysLate: late ? daysBetween(dueDate, asOf) : 0,
+    stale,
+    daysLate: overdue,
     unacknowledged: status === 'raised' && daysBetween(order.orderDate, asOf) > UNACKNOWLEDGED_DAYS,
     dueUnknown,
     arrivingToday,
@@ -147,13 +152,16 @@ function viewSalesOrder(model: Model, order: SalesOrder, asOf: IsoDate): SalesOr
   else if (reached(order.allocatedDate, asOf)) status = 'allocated';
   else status = 'back_ordered';
 
-  const late = status !== 'shipped' && order.committedDate < asOf;
+  const overdue = status !== 'shipped' && order.committedDate < asOf ? daysBetween(order.committedDate, asOf) : 0;
+  const stale = overdue > STALE_DAYS;
+  const late = overdue > 0 && !stale;
   return {
     order,
     value: order.lines.reduce((sum, line) => sum + line.qty * line.unitPrice, 0),
     status,
     late,
-    daysLate: late ? daysBetween(order.committedDate, asOf) : 0,
+    stale,
+    daysLate: overdue,
     categoryId: mainCategory(
       model,
       order.lines.map((line) => ({ productId: line.productId, amount: line.qty * line.unitPrice })),

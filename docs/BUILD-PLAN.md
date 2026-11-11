@@ -57,10 +57,10 @@ The layout is generated deterministically from data:
 
 | Element | Placement rule |
 |---|---|
-| Map | Iso grid with 2:1 tiles (64×32 px). 128×128 tiles |
+| Map | Iso grid with 2:1 tiles (64×32 px). 192×192 tiles |
 | Settlement | Fixed footprint at the centre. Building positions are fixed by design, not by data |
-| Supplier ports | On the map edge. Angle = stable hash of supplier code. Size = open PO value |
-| Customer villages | In rings around the settlement. Angle = stable hash of customer code (later: region). Distance ring = revenue band (biggest closest). Size = trailing 12-month revenue. Only the top N show as villages; the rest group into "small customers" hamlets |
+| Supplier ports | On a ring near the map edge. Angle = stable hash of supplier code. The biggest 64 get a port; the rest share 8 depots |
+| Customer villages | Where the customer really is: compass direction from the site, and further out the further away (distance compressed). Size = trailing revenue. The top 100 get a village; the rest share a hamlet with others in the same direction. With no locations, bigger customers sit closer in |
 | Roads | Auto-routed from each port and village to the settlement gate (A* on the grid, then smoothed). Shared trunk roads are merged |
 | Stockpile yard | One plot per product category. Pile height = stock value. Plots ordered by value |
 | Fog | Tiles tied to untrusted data are darkened (rules in DATA-MAPPING §7) |
@@ -113,7 +113,7 @@ Workers per building = `clamp(ceil(open_tasks / tasks_per_worker), 0, max_slots)
 
 | Thing | Rule |
 |---|---|
-| **Lorry** (one per open PO; a supplier's POs due the same day form a convoy with a count badge) | Position on its road = `(now − order_date) / (due_date − order_date)`, clamped to 0..0.95 until received |
+| **Lorry** (one per open PO; a supplier's POs due the same day form a convoy with a count badge) | Spaced by delivery date: distance from the gate = days until due, out of a 28-day horizon |
 | **Late lorry** | Past due and still open → parks in the **stalled queue** outside the gate, nose-to-tail, oldest first. Colour deepens with days late |
 | **Arrival** | When a receipt is recorded (`POIT_LASTDEL`), the lorry reaches the dock and unloads pallets (goods-in workers take over) |
 | **Van** | One per shipped sales order (or a convoy per village per day). Drives from dispatch to the village |
@@ -321,6 +321,22 @@ Stage 2 notes (2026-11-11):
 - **2.3 and 2.4 are not started.** Nothing has been reconciled against Slipstream figures. Fog on real data covers negative rebuilt stock and orders with no due date only.
 - The world now sizes itself to the business: suppliers beyond the biggest 34 share six depots, and worker capacity scales with each building's usual queue.
 - What the mirror turned out to hold is in DATA-MAPPING section 11.
+
+- The map is now 192×192 tiles: 64 supplier ports, 8 shared depots, 100 customer villages.
+- Customers sit where they really are relative to the site. Lorries are spaced by days until due.
+- Orders more than 90 days overdue are "stale" and kept out of the late queue.
+
+### Stage 2b: Decisions (new, 2026-11-11)
+
+The direction changed: see CONTEXT section 13. Before the play loops, make decisions visible and comparable.
+
+| # | Milestone | Exit test |
+|---|---|---|
+| 2b.1 | Purchasing building and buyers: each PO raised is a visible act by a role | Hovering a buyer shows the PO being raised and what stock and demand looked like |
+| 2b.2 | Pull who raised each order from the feed, shown by alias | Orders can be grouped by buyer in the table view |
+| 2b.3 | Simulation mode in the core: real demand and lead times, a swappable purchasing policy | The same period replays under a simple rule-based policy, deterministically |
+| 2b.4 | Side-by-side comparison of two runs | Stock value, stock-outs and late customer orders shown for actual versus simulated |
+| 2b.5 | An AI purchasing policy | Its run can be compared with the actual one, with every PO it raised traceable to its reasons |
 
 ### Stage 3: Play (~20 h)
 

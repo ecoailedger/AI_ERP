@@ -2,6 +2,7 @@
  * World state: what the core tells a client about the business on one date.
  * This is the API contract. Every outcome here (late, aged, on stop) is decided by the core.
  */
+import type { GeoPoint } from './dataset';
 import type { IsoDate } from './dates';
 
 export type RecordType =
@@ -61,6 +62,8 @@ export interface SupplierState {
   name: string;
   openPoCount: number;
   latePoCount: number;
+  /** Open orders so long overdue they were probably never closed. Not counted as late. */
+  stalePoCount: number;
   openPoValue: number;
   worstDaysLate: number;
 }
@@ -87,7 +90,11 @@ export interface PurchaseOrderState {
   dueDate: IsoDate;
   originalDueDate: IsoDate;
   status: PurchaseOrderStatus;
+  /** Past its due date, and recently enough that it is still expected. */
   late: boolean;
+  /** So long overdue it was probably never closed. Shown apart from late. */
+  stale: boolean;
+  /** Days past the due date, for late and stale orders alike. */
   daysLate: number;
   /** Raised a while ago and the supplier has not confirmed it. */
   unacknowledged: boolean;
@@ -140,6 +147,8 @@ export interface SalesOrderState {
   status: SalesOrderStatus;
   /** Past its committed date and not yet shipped. */
   late: boolean;
+  /** So long past its committed date it was probably never closed. Shown apart from late. */
+  stale: boolean;
   daysLate: number;
   value: number;
   shippedDate: IsoDate | null;
@@ -190,6 +199,8 @@ export type AlertKind =
   | 'po_late'
   | 'po_unacknowledged'
   | 'po_no_due_date'
+  | 'po_stale'
+  | 'so_stale'
   | 'dock_stale'
   | 'stock_aged'
   | 'stock_untrusted'
@@ -238,7 +249,9 @@ export interface WorldMaster {
   /** `rank` 1 is the biggest supplier by value ordered. */
   suppliers: { id: string; name: string; rank: number }[];
   /** `rank` 1 is the biggest customer by revenue over the whole range. */
-  customers: { id: string; name: string; rank: number }[];
+  customers: { id: string; name: string; rank: number; location: GeoPoint | null }[];
+  /** Where the company site is, or null if unknown. */
+  site: GeoPoint | null;
   categories: { id: string; name: string }[];
   /** The usual length of each function's queue. A queue well beyond it is a backlog. */
   typicalQueue: Record<BuildingId, number>;

@@ -24,5 +24,11 @@ export const DEBT_CHASE_DAYS = 7;
 /** Window for the revenue that sizes a customer. */
 export const REVENUE_WINDOW_DAYS = 90;
 
+/**
+ * An order this many days past its date is treated as stale: probably never closed, rather than still expected.
+ * Stale orders are counted and shown apart from late ones, so they do not drown out real lateness.
+ */
+export const STALE_DAYS = 90;
+
 /** A late purchase order is serious once it is this many days late. */
 export const PO_LATE_SERIOUS_DAYS = 7;

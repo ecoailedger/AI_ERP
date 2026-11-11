@@ -54,6 +54,13 @@ def pull_all(start: date, refresh: bool = False) -> dict[str, pd.DataFrame]:
         "stock": pull("stock", {"t": "StxSTOCK"}, """
             SELECT TRIM(STK_PRODUCT) product, SUM(STK_STKQTY) qty
             FROM t WHERE NOT IsDeleteFl GROUP BY 1 HAVING SUM(STK_STKQTY) <> 0"""),
+        "locations": pull("locations", {"s": "StxSTLOC", "n": "StxNDMAS"}, """
+            SELECT TRIM(s.STLOC_LOC) loc, MAX(TRIM(n.NDM_POSTCODE)) postcode
+            FROM s LEFT JOIN n ON n.NDM_NDCODE = s.STLOC_NDCODE AND NOT n.IsDeleteFl
+            WHERE NOT s.IsDeleteFl GROUP BY 1"""),
+        "stock_by_location": pull("stock_by_location", {"t": "StxSTOCK"}, """
+            SELECT TRIM(STK_LOC) loc, SUM(STK_STKQTY) qty
+            FROM t WHERE NOT IsDeleteFl AND STK_STKQTY > 0 GROUP BY 1"""),
         "descriptions": pull("descriptions", {"t": "StxAPDESC"}, """
             SELECT TRIM(APDSC_TYPE) kind, TRIM(APDSC_CODE) code, TRIM(APDSC_NAME) name
             FROM t WHERE NOT IsDeleteFl AND APDSC_TYPE IN ('M', 'C')"""),
@@ -65,7 +72,7 @@ def pull_all(start: date, refresh: bool = False) -> dict[str, pd.DataFrame]:
             SELECT TRIM(PLTC_CODE) term_code, MAX(PLTC_DAYS1) days FROM t WHERE NOT IsDeleteFl GROUP BY 1"""),
         "customers": pull("customers", {"c": "StxDLCUST", "n": "StxNDMAS"}, """
             SELECT TRIM(c.DLCUS_CUSTOMER) customer, MAX(TRIM(n.NDM_NAME)) name, MAX(c.DLCUS_LIMIT) credit_limit,
-                   MAX(TRIM(c.DLCUS_STOP)) stop
+                   MAX(TRIM(c.DLCUS_STOP)) stop, MAX(TRIM(n.NDM_POSTCODE)) postcode
             FROM c LEFT JOIN n ON n.NDM_NDCODE = c.DLCUS_NDCODE AND NOT n.IsDeleteFl
             WHERE NOT c.IsDeleteFl GROUP BY 1"""),
         "po_headers": pull("po_headers", {"t": "StxPORDER"}, f"""
@@ -85,7 +92,7 @@ def pull_all(start: date, refresh: bool = False) -> dict[str, pd.DataFrame]:
             GROUP BY 1"""),
         "so_headers": pull("so_headers", {"t": "StxSOHEAD"}, f"""
             SELECT TRIM(SOH_ORDREF) so, TRIM(SOH_ACCOUNT) customer, SOH_ORDDATE order_date, TRIM(SOH_STATUS) status,
-                   TRIM(SOH_ORDTYPE) order_type
+                   TRIM(SOH_ORDTYPE) order_type, TRIM(SOH_DELPOST) delivery_postcode
             FROM t WHERE NOT IsDeleteFl AND SOH_ORDDATE >= {ts(orders_from)}"""),
         "so_invoiced_lines": pull("so_invoiced_lines", {"t": "StxSOITEM"}, f"""
             SELECT TRIM(SOI_ORDREF) so, TRIM(SOI_INVREF) invoice, TRIM(SOI_PRODUCT) product, SOI_ITQTY qty,

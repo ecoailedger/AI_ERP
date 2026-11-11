@@ -7,6 +7,8 @@ const apiPort = Number(process.env.PORT ?? 5191);
 
 export default defineConfig({
   plugins: [react()],
+  // Each copy keeps its own dependency cache. Two dev servers sharing one cache break each other's module loads.
+  cacheDir: `node_modules/.vite-${clientPort}`,
   server: {
     port: clientPort,
     strictPort: true,

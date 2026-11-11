@@ -3,8 +3,8 @@
  * Built from master data only, so it does not shift as the date changes.
  * Entities are placed in master order, so adding one never moves the others.
  */
-import type { WorldMaster } from '@ai-erp/domain';
-import { hashString } from './hash';
+import type { GeoPoint, WorldMaster } from '@ai-erp/domain';
+import { hashString, hashUnit } from './hash';
 import type { Tile } from './iso';
 import { tilesOnPath } from './paths';
 import { staffingLevels, type StaffingLevels } from './workers';
@@ -23,23 +23,33 @@ import {
 } from './settlement';
 
 /** Suppliers ranked this high get their own port. The rest share depots. */
-export const PORT_COUNT = 34;
+export const PORT_COUNT = 64;
 /** Ring slots kept for the shared depots, spread evenly round the map. */
-const DEPOT_SLOTS = [3, 10, 17, 23, 30, 37] as const;
+const DEPOT_SLOTS = [4, 13, 22, 31, 40, 49, 58, 67] as const;
 export const DEPOT_COUNT = DEPOT_SLOTS.length;
 
 /** Customers ranked this high get their own village. The rest share hamlets. */
-export const VILLAGE_COUNT = 36;
-export const HAMLET_COUNT = 8;
+export const VILLAGE_COUNT = 100;
+/** Small customers are grouped by compass direction, twelve ways. */
+const HAMLET_SECTORS = 12;
 
 const CENTRE = MAP_SIZE / 2;
-const PORT_RING = { radius: 56, slots: 40 };
-const HAMLET_RING = { radius: 49, slots: HAMLET_COUNT };
-/** Bigger customers sit closer in. */
-const VILLAGE_RINGS = [
-  { maxRank: 8, radius: 26, slots: 16, band: 3 },
-  { maxRank: 20, radius: 36, slots: 24, band: 2 },
-  { maxRank: VILLAGE_COUNT, radius: 45, slots: 32, band: 1 },
+/** Tiles from the centre of the map to the ring of supplier ports. */
+export const PORT_RADIUS = 86;
+const PORT_RING = { radius: PORT_RADIUS, slots: 72 };
+const HAMLET_RING = { radius: 76, slots: HAMLET_SECTORS };
+/** How near and how far from the centre a customer can sit, in tiles. */
+const CUSTOMER_REACH = { min: 25, max: 68 };
+/** A customer this many kilometres away, or further, sits at the far edge. */
+const FAR_KM = 600;
+/** Least distance between two places, in tiles. */
+const PLACE_GAP = 6;
+/** With no locations to go on, bigger customers sit closer in. */
+const RANK_RINGS = [
+  { maxRank: 10, radius: 30 },
+  { maxRank: 30, radius: 42 },
+  { maxRank: 60, radius: 54 },
+  { maxRank: VILLAGE_COUNT, radius: 66 },
 ] as const;
 
 export interface Place {
@@ -61,8 +71,10 @@ export interface PortPlace extends Place {
 export interface VillagePlace extends Place {
   customerId: string;
   name: string;
-  /** 3 is the innermost ring, for the biggest customers. */
+  /** 3 for the biggest customers, 1 for the smallest that still get a village. */
   band: 1 | 2 | 3;
+  /** True when the village sits where the customer really is, relative to the site. */
+  located: boolean;
 }
 
 export interface HamletPlace extends Place {
@@ -103,6 +115,32 @@ function ringTile(radius: number, slots: number, slot: number): Tile {
     col: Math.round(CENTRE + radius * Math.cos(angle)),
     row: Math.round(CENTRE + radius * Math.sin(angle)),
   };
+}
+
+/**
+ * Where a real place belongs on the map: its compass direction from the site, and further out the further away it is.
+ * North is up the screen. Distance is compressed, so nearby customers do not pile onto the settlement.
+ */
+export function geoTile(site: GeoPoint, point: GeoPoint): Tile {
+  const east = (point.lon - site.lon) * Math.cos((site.lat * Math.PI) / 180) * 111.32;
+  const north = (point.lat - site.lat) * 110.57;
+  const km = Math.hypot(east, north);
+  const reach = CUSTOMER_REACH.min + (CUSTOMER_REACH.max - CUSTOMER_REACH.min) * Math.min(1, km / FAR_KM) ** 0.55;
+  const ux = km > 0 ? east / km : 0;
+  const uy = km > 0 ? north / km : 1;
+  // On the grid, screen-right is (+col, -row) and screen-up is (-col, -row).
+  return {
+    col: CENTRE + (reach * (ux - uy)) / Math.SQRT2,
+    row: CENTRE + (reach * (-ux - uy)) / Math.SQRT2,
+  };
+}
+
+/** Compass sector of a place seen from the site: 0 is north, going clockwise. */
+function sectorOf(site: GeoPoint, point: GeoPoint): number {
+  const east = (point.lon - site.lon) * Math.cos((site.lat * Math.PI) / 180);
+  const north = point.lat - site.lat;
+  const bearing = (Math.atan2(east, north) + Math.PI * 2) % (Math.PI * 2);
+  return Math.floor((bearing / (Math.PI * 2)) * HAMLET_SECTORS) % HAMLET_SECTORS;
 }
 
 /** Gives each id a ring slot from its hash, moving on to the next free slot on a clash. */
@@ -164,30 +202,91 @@ export function buildLayout(master: WorldMaster): Layout {
     });
   }
 
-  const villages: VillagePlace[] = [];
-  const hamletMembers: string[][] = Array.from({ length: HAMLET_COUNT }, () => []);
-  const homeByCustomer = new Map<string, CustomerHome>();
-  const takenByRing = VILLAGE_RINGS.map(() => new Set<number>());
-  for (const customer of master.customers) {
-    const ringIndex = VILLAGE_RINGS.findIndex((ring) => customer.rank <= ring.maxRank);
-    const ring = VILLAGE_RINGS[ringIndex];
-    const slot = ring && assignSlots([customer.id], ring.slots, takenByRing[ringIndex]).get(customer.id);
-    if (ring && slot !== undefined) {
-      homeByCustomer.set(customer.id, { kind: 'village', index: villages.length });
-      villages.push({ customerId: customer.id, name: customer.name, band: ring.band, ...place(ringTile(ring.radius, ring.slots, slot)) });
-    } else {
-      const index = hashString(customer.id) % HAMLET_COUNT;
-      (hamletMembers[index] as string[]).push(customer.id);
-      homeByCustomer.set(customer.id, { kind: 'hamlet', index });
+  // ---- Customers. Bigger ones are placed first, so they get the spot nearest their true position.
+  const occupied: Tile[] = ports.map((port) => port.tile);
+  const isFree = (tile: Tile): boolean => {
+    const radius = Math.hypot(tile.col - CENTRE, tile.row - CENTRE);
+    if (radius < CUSTOMER_REACH.min - 1 || radius > PORT_RADIUS - PLACE_GAP - 1) return false;
+    if (Math.abs(tile.col - TRUNK) < 3 || Math.abs(tile.row - TRUNK) < 3) return false;
+    return occupied.every((other) => Math.hypot(other.col - tile.col, other.row - tile.row) >= PLACE_GAP);
+  };
+  /** The free tile nearest a target, searching outwards in a spiral. */
+  const settle = (target: Tile): Tile => {
+    for (let ring = 0; ring < 80; ring++) {
+      const steps = Math.max(1, ring * 6);
+      for (let step = 0; step < steps; step++) {
+        const angle = (step / steps) * Math.PI * 2;
+        const tile = {
+          col: Math.round(target.col + ring * 1.5 * Math.cos(angle)),
+          row: Math.round(target.row + ring * 1.5 * Math.sin(angle)),
+        };
+        if (isFree(tile)) {
+          occupied.push(tile);
+          return tile;
+        }
+      }
     }
+    const fallback = { col: Math.round(target.col), row: Math.round(target.row) };
+    occupied.push(fallback);
+    return fallback;
+  };
+  const onRing = (radius: number, turn: number): Tile => ({
+    col: CENTRE + radius * Math.cos(turn * Math.PI * 2),
+    row: CENTRE + radius * Math.sin(turn * Math.PI * 2),
+  });
+
+  const { site } = master;
+  const byRank = [...master.customers].sort((a, b) => a.rank - b.rank || a.id.localeCompare(b.id));
+  const villages: VillagePlace[] = [];
+  const homeByCustomer = new Map<string, CustomerHome>();
+  for (const customer of byRank) {
+    if (customer.rank > VILLAGE_COUNT) continue;
+    const located = site !== null && customer.location !== null;
+    const ring = RANK_RINGS.find((candidate) => customer.rank <= candidate.maxRank) ?? RANK_RINGS[RANK_RINGS.length - 1];
+    const target =
+      site !== null && customer.location !== null
+        ? geoTile(site, customer.location)
+        : onRing(ring?.radius ?? CUSTOMER_REACH.max, hashUnit(`turn:${customer.id}`));
+    homeByCustomer.set(customer.id, { kind: 'village', index: villages.length });
+    villages.push({
+      customerId: customer.id,
+      name: customer.name,
+      band: customer.rank <= 10 ? 3 : customer.rank <= 40 ? 2 : 1,
+      located,
+      ...place(settle(target)),
+    });
   }
 
-  const hamlets: HamletPlace[] = hamletMembers.map((customerIds, index) => ({
-    index,
-    customerIds,
-    // A part-slot turn puts each hamlet midway between two ports on the ring outside it.
-    ...place(ringTile(HAMLET_RING.radius, HAMLET_RING.slots, index + 0.3)),
-  }));
+  // Small customers share a hamlet with others in the same direction. Those with no location share one more.
+  const groups = new Map<number, { customerIds: string[]; targets: Tile[] }>();
+  for (const customer of byRank) {
+    if (customer.rank <= VILLAGE_COUNT) continue;
+    const located = site !== null && customer.location !== null;
+    const sector =
+      site !== null && customer.location !== null
+        ? sectorOf(site, customer.location)
+        : site !== null
+          ? HAMLET_SECTORS
+          : hashString(customer.id) % HAMLET_SECTORS;
+    const group = groups.get(sector) ?? { customerIds: [], targets: [] };
+    group.customerIds.push(customer.id);
+    if (located && site !== null && customer.location !== null) group.targets.push(geoTile(site, customer.location));
+    groups.set(sector, group);
+  }
+  const hamlets: HamletPlace[] = [...groups.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([sector, group], index) => {
+      for (const customerId of group.customerIds) homeByCustomer.set(customerId, { kind: 'hamlet', index });
+      // A hamlet sits at the middle of its customers, or out on the ring between two ports if none has a location.
+      const target =
+        group.targets.length > 0
+          ? {
+              col: group.targets.reduce((sum, tile) => sum + tile.col, 0) / group.targets.length,
+              row: group.targets.reduce((sum, tile) => sum + tile.row, 0) / group.targets.length,
+            }
+          : ringTile(HAMLET_RING.radius, HAMLET_RING.slots, sector - 0.333 + (sector === HAMLET_SECTORS ? 6.4 : 0));
+      return { index, customerIds: group.customerIds, ...place(settle(target)) };
+    });
 
   const plots: PlotPlace[] = master.categories.slice(0, PLOT_COUNT).map((category, index) => ({
     categoryId: category.id,

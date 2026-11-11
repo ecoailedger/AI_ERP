@@ -2,7 +2,7 @@
  * Scene frame: where everything that moves or changes is, for one world state and time of day.
  * Pure presentation. It never decides a business outcome: late, aged and untrusted all come from the core.
  */
-import { daysBetween, toDayNumber, type RecordRef, type WorldState } from '@ai-erp/domain';
+import { toDayNumber, type RecordRef, type WorldState } from '@ai-erp/domain';
 import type { Tile } from './iso';
 import { customerPlace, type Layout } from './layout';
 import { pathLength, pointAlong, type Heading } from './paths';
@@ -93,6 +93,8 @@ export interface SceneFrame {
 }
 
 const PARKED_VAN_LIMIT = 4;
+/** A lorry due this many days out, or more, is at the far end of its road. */
+export const DELIVERY_HORIZON_DAYS = 28;
 const centre = (tile: Tile): Tile => ({ col: tile.col + 0.5, row: tile.row + 0.5 });
 const centred = (tiles: readonly Tile[]): Tile[] => tiles.map(centre);
 const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
@@ -181,8 +183,8 @@ export function buildFrame(layout: Layout, state: WorldState, dayFraction: numbe
         daysLate: 0,
         label: `${order.id} from ${name}: unloading`,
       });
-    } else if (order.status === 'raised' || order.dueUnknown) {
-      // Not confirmed, or no due date held: either way it cannot be placed on the road.
+    } else if (order.status === 'raised' || order.dueUnknown || order.stale) {
+      // Not confirmed, no due date, or long dead: none of these can be placed on the road.
       const list = waiting.get(order.supplierId) ?? [];
       list.push(order);
       waiting.set(order.supplierId, list);
@@ -199,8 +201,9 @@ export function buildFrame(layout: Layout, state: WorldState, dayFraction: numbe
     const port = layout.portBySupplier.get(first.supplierId);
     if (!port) continue;
     const route = centred(port.road);
-    const span = Math.max(1, daysBetween(first.orderDate, first.dueDate));
-    const progress = clamp((now - toDayNumber(first.orderDate)) / span, 0.03, 0.95);
+    // Lorries are spaced by delivery date: the nearer the due date, the nearer the gate.
+    const daysToDue = toDayNumber(first.dueDate) - now;
+    const progress = clamp(1 - daysToDue / DELIVERY_HORIZON_DAYS, 0.03, 0.95);
     const point = pointAlong(route, progress * pathLength(route));
     const name = supplierName.get(first.supplierId) ?? first.supplierId;
     vehicles.push({
@@ -227,7 +230,8 @@ export function buildFrame(layout: Layout, state: WorldState, dayFraction: numbe
     const name = supplierName.get(supplierId) ?? supplierId;
     const unconfirmed = orders.filter((order) => order.unacknowledged);
     const undated = orders.filter((order) => order.dueUnknown);
-    const worst = orders.reduce((max, order) => Math.max(max, order.daysLate), 0);
+    const stale = orders.filter((order) => order.stale);
+    const worst = orders.reduce((max, order) => (order.late ? Math.max(max, order.daysLate) : max), 0);
     const start = pointAlong(centred(port.road), 1.6);
     vehicles.push({
       key: `lorry:waiting:${supplierId}`,
@@ -241,7 +245,9 @@ export function buildFrame(layout: Layout, state: WorldState, dayFraction: numbe
       late: worst > 0,
       daysLate: worst,
       label:
-        undated.length > 0
+        stale.length > 0
+          ? `${stale.length} at ${name} long overdue, probably never closed`
+          : undated.length > 0
           ? `${undated.length} at ${name} with no due date`
           : unconfirmed.length > 0
             ? `${orders.length} at ${name} not yet confirmed by the supplier`
@@ -385,6 +391,7 @@ export function buildFrame(layout: Layout, state: WorldState, dayFraction: numbe
     const openCount = members.reduce((sum, supplier) => sum + supplier.openPoCount, 0);
     const lateCount = members.reduce((sum, supplier) => sum + supplier.latePoCount, 0);
     const worstDaysLate = members.reduce((max, supplier) => Math.max(max, supplier.worstDaysLate), 0);
+    const staleCount = members.reduce((sum, supplier) => sum + supplier.stalePoCount, 0);
     const fogged = port.supplierIds.filter((id) => fogBySupplier.has(id));
     return {
       key: port.key,
@@ -400,7 +407,9 @@ export function buildFrame(layout: Layout, state: WorldState, dayFraction: numbe
       label:
         lateCount > 0
           ? `${port.name}: ${lateCount} of ${openCount} orders late, worst ${worstDaysLate} days`
-          : `${port.name}: ${openCount} open orders`,
+          : staleCount > 0
+            ? `${port.name}: ${openCount} open orders, ${staleCount} of them stale`
+            : `${port.name}: ${openCount} open orders`,
     };
   });
 

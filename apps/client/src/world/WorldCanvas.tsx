@@ -28,7 +28,7 @@ export function WorldCanvas() {
       fraction: () => clock.fraction,
     });
     view.current = created;
-    void created.init();
+    created.init().catch((error: unknown) => actions.reportError(error));
     return () => {
       view.current = null;
       created.destroy();

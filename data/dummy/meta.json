@@ -5,6 +5,10 @@
   "startDate": "2026-08-03",
   "endDate": "2026-10-31",
   "openingCash": 2000000,
+  "site": {
+    "lat": 52.5,
+    "lon": -1.5
+  },
   "simulated": [
     "creditors",
     "cash"

@@ -6,6 +6,7 @@ import {
   buildSchedules,
   BUILDINGS,
   findPath,
+  geoTile,
   GATES,
   hashUnit,
   headcount,
@@ -32,7 +33,8 @@ function master(supplierCount = 25, customerCount = 120): WorldMaster {
     source: 'test',
     range: { start: '2026-08-03', end: '2026-10-31' },
     suppliers: Array.from({ length: supplierCount }, (_, i) => ({ id: `SUP${String(i + 1).padStart(3, '0')}`, name: `Supplier ${i + 1}`, rank: i + 1 })),
-    customers: Array.from({ length: customerCount }, (_, i) => ({ id: `CUS${String(i + 1).padStart(4, '0')}`, name: `Customer ${i + 1}`, rank: i + 1 })),
+    customers: Array.from({ length: customerCount }, (_, i) => ({ id: `CUS${String(i + 1).padStart(4, '0')}`, name: `Customer ${i + 1}`, rank: i + 1, location: null })),
+    site: null,
     categories: Array.from({ length: 12 }, (_, i) => ({ id: `CAT${String(i + 1).padStart(2, '0')}`, name: `Category ${i + 1}` })),
     typicalQueue: { goodsIn: 0, warehouse: 0, sales: 0, accounts: 0, dispatch: 0 },
     simulated: [],
@@ -48,6 +50,7 @@ function order(id: string, patch: Partial<PurchaseOrderState> = {}): PurchaseOrd
     originalDueDate: '2026-09-21',
     status: 'in_transit',
     late: false,
+    stale: false,
     daysLate: 0,
     unacknowledged: false,
     dueUnknown: false,
@@ -64,7 +67,7 @@ function state(patch: Partial<WorldState> = {}): WorldState {
   return {
     asOf: '2026-09-11',
     figures: [],
-    suppliers: base.suppliers.map((s) => ({ id: s.id, name: s.name, openPoCount: 0, latePoCount: 0, openPoValue: 0, worstDaysLate: 0 })),
+    suppliers: base.suppliers.map((s) => ({ id: s.id, name: s.name, openPoCount: 0, latePoCount: 0, stalePoCount: 0, openPoValue: 0, worstDaysLate: 0 })),
     customers: base.customers.map((c) => ({
       id: c.id,
       name: c.name,
@@ -183,9 +186,10 @@ describe('layout', () => {
 
   it('places every supplier and customer, inside the map and outside the settlement', () => {
     expect(layout.ports).toHaveLength(25);
-    expect(layout.villages).toHaveLength(36);
+    expect(layout.villages).toHaveLength(100);
     expect(layout.homeByCustomer.size).toBe(120);
-    expect(layout.hamlets.reduce((sum, hamlet) => sum + hamlet.customerIds.length, 0)).toBe(84);
+    expect(layout.hamlets.reduce((sum, hamlet) => sum + hamlet.customerIds.length, 0)).toBe(20);
+    expect(layout.hamlets.every((hamlet) => hamlet.customerIds.length > 0)).toBe(true);
     for (const place of [...layout.ports, ...layout.villages, ...layout.hamlets]) {
       const { col, row } = place.tile;
       expect(col).toBeGreaterThanOrEqual(3);
@@ -229,8 +233,8 @@ describe('layout', () => {
     const crowded = buildLayout(master(200));
     const own = crowded.ports.filter((port) => !port.shared);
     const depots = crowded.ports.filter((port) => port.shared);
-    expect(own).toHaveLength(34);
-    expect(depots.reduce((sum, depot) => sum + depot.supplierIds.length, 0)).toBe(166);
+    expect(own).toHaveLength(64);
+    expect(depots.reduce((sum, depot) => sum + depot.supplierIds.length, 0)).toBe(136);
     expect(crowded.portBySupplier.size).toBe(200);
     const tiles = new Set(crowded.ports.map((port) => `${port.tile.col},${port.tile.row}`));
     expect(tiles.size).toBe(crowded.ports.length);
@@ -238,13 +242,51 @@ describe('layout', () => {
     expect(crowded.ports.slice(0, 25).map((port) => port.tile)).toEqual(layout.ports.map((port) => port.tile));
   });
 
-  it('gives bigger customers the inner ring', () => {
+  it('puts a customer where it really is: its direction from the site, and further out the further away', () => {
+    const site = { lat: 52.5, lon: -1.5 };
+    const at = (lat: number, lon: number) => tileToScreen(geoTile(site, { lat, lon }).col, geoTile(site, { lat, lon }).row);
+    const centre = tileToScreen(MAP_SIZE / 2, MAP_SIZE / 2);
+    const north = at(53.5, -1.5);
+    const farNorth = at(56.5, -1.5);
+    const east = at(52.5, 0.5);
+    const south = at(51.0, -1.5);
+    expect(north.y).toBeLessThan(centre.y);
+    expect(Math.abs(north.x - centre.x)).toBeLessThan(1);
+    expect(farNorth.y).toBeLessThan(north.y);
+    expect(east.x).toBeGreaterThan(centre.x);
+    expect(south.y).toBeGreaterThan(centre.y);
+  });
+
+  it('places located customers by location, and keeps them apart when they share a spot', () => {
+    const base = master(25, 30);
+    const located = buildLayout({
+      ...base,
+      site: { lat: 52.5, lon: -1.5 },
+      // Ten customers in one town to the south, the rest far to the north.
+      customers: base.customers.map((customer, i) => ({ ...customer, location: i < 10 ? { lat: 51.5, lon: -0.1 } : { lat: 56 + i * 0.01, lon: -3.2 } })),
+    });
+    const centreY = tileToScreen(MAP_SIZE / 2, MAP_SIZE / 2).y;
+    const screenY = (id: string): number => {
+      const village = located.villages.find((candidate) => candidate.customerId === id);
+      return tileToScreen(village?.tile.col ?? 0, village?.tile.row ?? 0).y;
+    };
+    expect(screenY('CUS0001')).toBeGreaterThan(centreY);
+    expect(screenY('CUS0020')).toBeLessThan(centreY);
+    expect(located.villages.every((village) => village.located)).toBe(true);
+    for (const [i, a] of located.villages.entries()) {
+      for (const b of located.villages.slice(i + 1)) {
+        expect(Math.hypot(a.tile.col - b.tile.col, a.tile.row - b.tile.row)).toBeGreaterThanOrEqual(4);
+      }
+    }
+  });
+
+  it('gives bigger customers the inner ring when there are no locations', () => {
     const distance = (customerId: string): number => {
       const village = layout.villages.find((candidate) => candidate.customerId === customerId);
       return Math.hypot((village?.tile.col ?? 0) - TRUNK, (village?.tile.row ?? 0) - TRUNK);
     };
     expect(distance('CUS0001')).toBeLessThan(distance('CUS0015'));
-    expect(distance('CUS0015')).toBeLessThan(distance('CUS0030'));
+    expect(distance('CUS0015')).toBeLessThan(distance('CUS0045'));
   });
 });
 
@@ -269,6 +311,29 @@ describe('frame', () => {
     const waiting = frame.vehicles.filter((vehicle) => vehicle.state === 'waiting');
     expect(waiting).toHaveLength(1);
     expect(waiting[0]?.refs[0]?.id).toBe('PO2');
+  });
+
+  it('spaces lorries by delivery date: sooner is nearer the gate', () => {
+    const port = layout.portBySupplier.get('SUP001');
+    const gate = GATES[port?.gate ?? 'N'];
+    const frame = buildFrame(
+      layout,
+      state({ purchaseOrders: [order('PO1', { dueDate: '2026-09-13' }), order('PO2', { dueDate: '2026-09-20' }), order('PO3', { dueDate: '2026-10-30' })] }),
+      0.5,
+    );
+    const toGate = (id: string): number => {
+      const lorry = frame.vehicles.find((vehicle) => vehicle.refs[0]?.id === id);
+      return Math.abs((lorry?.col ?? 0) - gate.col) + Math.abs((lorry?.row ?? 0) - gate.row);
+    };
+    expect(toGate('PO1')).toBeLessThan(toGate('PO2'));
+    expect(toGate('PO2')).toBeLessThan(toGate('PO3'));
+  });
+
+  it('leaves a stale order at the port, out of the late queue', () => {
+    const frame = buildFrame(layout, state({ purchaseOrders: [order('PO1', { stale: true, daysLate: 200, dueDate: '2026-02-23' })] }), 0.5);
+    expect(frame.vehicles.filter((vehicle) => vehicle.state === 'stalled')).toHaveLength(0);
+    expect(frame.vehicles[0]).toMatchObject({ state: 'waiting', late: false });
+    expect(frame.vehicles[0]?.label).toContain('long overdue');
   });
 
   it('moves a lorry along its road as the due date nears', () => {

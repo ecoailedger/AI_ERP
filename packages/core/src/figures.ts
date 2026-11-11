@@ -79,7 +79,11 @@ function openSalesOrderRows(model: Model, snap: Snapshot): { columns: string[]; 
         must(model.customer, view.order.customerId, 'customer').name,
         view.order.orderDate,
         view.order.committedDate >= UNKNOWN_DATE ? 'Not held' : view.order.committedDate,
-        view.late ? `${STATUS_TEXT[view.status]}, ${view.daysLate} days late` : STATUS_TEXT[view.status],
+        view.late
+          ? `${STATUS_TEXT[view.status]}, ${view.daysLate} days late`
+          : view.stale
+            ? `Stale, ${view.daysLate} days past committed date`
+            : STATUS_TEXT[view.status],
         money(view.value),
       ],
       amount: round2(view.value),
@@ -98,7 +102,11 @@ function openPurchaseOrderRows(model: Model, snap: Snapshot): { columns: string[
         must(model.supplier, view.order.supplierId, 'supplier').name,
         view.order.orderDate,
         view.dueDate,
-        view.late ? `${STATUS_TEXT[view.status]}, ${view.daysLate} days late` : STATUS_TEXT[view.status],
+        view.late
+          ? `${STATUS_TEXT[view.status]}, ${view.daysLate} days late`
+          : view.stale
+            ? `Stale, ${view.daysLate} days overdue`
+            : STATUS_TEXT[view.status],
         money(view.valueOutstanding),
       ],
       amount: round2(view.valueOutstanding),

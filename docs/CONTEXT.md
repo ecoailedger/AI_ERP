@@ -132,6 +132,10 @@ Source tables and columns are mapped in [DATA-MAPPING.md](DATA-MAPPING.md). Do n
 | 2026-11-11 | Workers are drawn, each tied to a record in a building's queue. No work, no workers |
 | 2026-11-11 | One canonical dataset shape for every source. Dummy data and the Fabric feed both map into it |
 | 2026-11-11 | Art is drawn in code as isometric shapes. No image assets yet |
+| 2026-11-11 | The focus is the decisions people make, such as raising a PO, with a later aim of replaying history with an AI making them. See section 13 |
+| 2026-11-11 | An order more than 90 days overdue is "stale", shown apart from "late" |
+| 2026-11-11 | Customers are placed by real direction and distance from the site, to the nearest postcode area |
+| 2026-11-11 | Lorries are spaced along the road by days until due, not by share of lead time elapsed |
 
 ## 12. Open questions
 
@@ -139,3 +143,25 @@ Source tables and columns are mapped in [DATA-MAPPING.md](DATA-MAPPING.md). Do n
 - Which other Fabric tables can feed stock, sales and finance.
 - Hosting.
 - Advisor model.
+
+## 13. Direction: decisions, not deliveries
+
+Added 2026-11-11.
+
+The physical work cannot be handed to software: a lorry still has to arrive and a pallet still has to be moved. What can change is the **decisions people make**: a buyer raising a purchase order, a salesperson committing a date, a credit controller putting an account on stop.
+
+So the part of the world worth getting right is the decision, and who or what made it. The aim further out:
+
+1. Show each decision as a visible act by a role. A buyer raises a PO; the lorry is the consequence.
+2. Record what the decision-maker knew at the time: stock, demand, what was already on order.
+3. Replay the same period with a different decision-maker, for example an AI buyer, against the same demand and the same supplier behaviour.
+4. Compare the outcomes side by side: stock value, stock-outs, late customer orders, cash tied up.
+
+That comparison is the point. It answers "how much better would this have gone?" with the business's own history, not a claim.
+
+What this means for the build:
+
+- Purchasing needs its own place in the settlement. Today there is no buyer and no purchasing queue.
+- The feed says who raised each order (`PORD_USERID`, `PORD_AUTHOR`, `SOH_USERID`, `SOH_AUTHOR`). These are not pulled yet. People are shown by role or alias, never by name.
+- The core needs a simulation mode: take real demand and real supplier lead times, swap in a purchasing policy, and run the days forward. The dummy data generator already does a simple version of this.
+- Deliveries, picking and loading stay in the world as consequences. They are not where the effort goes.
