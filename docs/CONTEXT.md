@@ -95,7 +95,7 @@ Supplier, Customer, Product, ProductCategory, Location, PurchaseOrder and lines,
 | Stock | Dummy | Fabric, to be identified |
 | Sales orders, invoices, payments | Simulated | Fabric, to be identified |
 
-The exact Slipstream schema is to be documented here once confirmed. Do not guess column names.
+Source tables and columns are mapped in [DATA-MAPPING.md](DATA-MAPPING.md). Do not guess column names: anything not marked confirmed there gets checked first.
 
 ## 9. Build order
 
