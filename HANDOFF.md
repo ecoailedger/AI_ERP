@@ -1,74 +1,50 @@
-# Handoff
+# HANDOFF — AI_ERP (2026-11-11 13:30)
+**Goal:** An ERP shown as an isometric world, where the decisions people make (raising POs, entering orders) can later be replayed by an AI and compared.
+**State:** working — runs on dummy data and on a real look-back (1 Oct to 10 Nov 2026) from the UK orders mirror.
 
-Updated 2026-11-11.
+## Done & verified
+- Stage 1 world (map, lorries, stock, workers, record cards, figures, table view, time scrubber) — verified by `npm run check` (86 tests) and a browser check on dummy data
+- Real-data ingest, read-only, cached locally (`ingest/`, milestone 2.1) — verified by loading `data/real/lookback` into the core and viewing it in a browser at ~120 fps
+- 192-tile map: 64 ports, 8 depots, 100 villages placed by real location (postcode area) — verified by scene tests and a browser check
+- Lorries spaced by days until due; orders over 90 days overdue are "stale", not "late" — verified by core and scene tests
+- People as avatars with a 7.5 hour day, Purchasing office, People tab (2b.1, 2b.2) — verified by tests and a browser check on real data
+- Page waits for the core to load instead of erroring — verified by `npm run check` only; the slow-start case was not re-tested in a browser
 
-## State
+## In flight (exactly where work stopped)
+- Nothing half-edited. Working tree clean, everything pushed to `origin/main`.
+- Stage 1 exit test not run: 3 people must each name the late suppliers in 30 seconds. Needs people.
+- 2b.1 exit test part met: hovering a buyer does not yet show stock and demand at the time of the PO.
 
-- **Stage 1 is built.** Milestones 1.0 to 1.9 done, 1.10 half done (the people test is outstanding).
-- **People are in.** Each buyer and salesperson on the orders is an avatar with a 7.5 hour day (Stage 2b, milestones 2b.1 and 2b.2).
-- **Stage 2 has started.** The world runs on a real look-back from the UK orders mirror: 1 October to 10 November 2026. Milestone 2.1 is done, 2.2 is half done, 2.3 and 2.4 are not started.
-- `npm run check` passes: lint, typecheck, 86 tests, client build.
+## Do NOT (hard-won constraints)
+- Never commit real data, `.env`, workspace or item ids, or screenshots of the real look-back. The repo is public. `data/real/` and `.env` are gitignored.
+- Never write to Fabric or Strategix. `ingest/aierp_ingest/lake.py` has no write function: keep it that way.
+- People are always shown by alias. Real user ids must not leave `snapshot.py`.
+- No business logic in `packages/scene` or `apps/client`. ESLint blocks them importing `@ai-erp/core`.
+- Do not guess column names: `docs/DATA-MAPPING.md` section 11 records what the mirror holds.
+- Port 5180 belongs to another project (Pallas2-buyer). This project uses 5190 (client) and 5191 (API).
+- Multi-line edits through bash heredocs fail in this shell when the text has quotes. Write a `.py` script file and run it.
+- After changing `tools/dummygen`, run `npm run generate -w @ai-erp/dummygen` or a test fails.
 
-## Run it
+## Key references
+- Files: `packages/core/src/state.ts` (world state, queues, alerts), `packages/core/src/rules.ts` and `workload.ts` (thresholds, job times), `packages/scene/src/layout.ts` (map placement), `packages/scene/src/workers.ts` (avatars), `apps/client/src/world/WorldView.ts` (renderer), `ingest/aierp_ingest/snapshot.py` (mirror → canonical dataset)
+- Docs: `docs/CONTEXT.md` section 13 (direction), `docs/BUILD-PLAN.md` (milestones, Stage 2b), `docs/DATA-MAPPING.md` section 11
+- IDs: mirror workspace and item ids are in `.env` only (see `.env.example`). Fabric sign-in is a device code, cached by Windows.
+- Run: `npm run dev` (dummy), `npm run dev:real` (real look-back), `cd ingest && python -m aierp_ingest.snapshot --start 2026-10-01` (rebuild; add `--refresh` to re-pull, `--real-names` for real supplier and customer names)
 
-| Command | What you get |
-|---|---|
-| `npm run dev` | Dummy data. World on http://localhost:5190, API on 127.0.0.1:5191 |
-| `npm run dev:real` | The real look-back in `data/real/lookback/`. Same ports |
-| `cd ingest && python -m aierp_ingest.snapshot --start 2026-10-01` | Rebuilds the look-back. Uses the cache unless `--refresh` is passed |
+## Messages sent
+| When | To | Channel | Gist | Awaiting reply? |
+|---|---|---|---|---|
+| — | — | — | None sent. The five data-team questions at the end of DATA-MAPPING section 11 are drafted but not sent | — |
 
-To run both at once, give the second copy other ports: `PORT=5193 AI_ERP_CLIENT_PORT=5192 npm run dev:real`.
+## Next steps, in order
+1. Get real times for raising a PO and entering a sales order; replace the assumed ones in `packages/core/src/workload.ts`.
+2. Tell system and automated user ids apart from people (one id does ~50 hours of work a day).
+3. Show what a buyer knew when raising a PO: stock, demand, on order.
+4. 2b.3: simulation mode in the core (real demand and lead times, swappable purchasing policy).
+5. 2b.4 and 2b.5: side-by-side comparison, then an AI purchasing policy held to the same 7.5 hour day.
+6. Send the data team the five questions (goods received notes, stock movements, ledgers, intercompany flag, dead orders).
+7. Ask the warehouse whether goods receipts are booked days after delivery (late lorries jump in the last days of the look-back).
+8. Still open from Stage 2: daily snapshot schedule (2.2), reconciliation against Slipstream figures (2.3).
 
-The real look-back on this machine was built with `--real-names`. Do not commit or share screenshots of it.
-
-## What is left
-
-Stage 1:
-
-1. The people test: 3 people, each names the late suppliers in 30 seconds, unprompted.
-2. Decide whether hand-drawn pixel art is still wanted.
-3. A static demo build for hosting.
-
-Stage 2b (decisions, see CONTEXT section 13):
-
-1. **Job times are assumptions.** `packages/core/src/workload.ts` sets how long raising a PO and entering an order take. Get timed figures.
-2. Tell system and automated user ids apart from people. Some do several days of work in a day.
-3. Show what a buyer knew when they raised a PO: stock, demand, what was on order.
-4. 2b.3 to 2b.5: simulation mode, side-by-side comparison, an AI purchasing policy. Not started.
-
-Stage 2:
-
-1. Late lorries on real data jump in the last few days of the look-back. Likely goods receipts booked a few days after delivery. Ask the warehouse.
-2. **2.2 daily snapshot.** Nothing runs the ingest each day, so real history is not building up. Each run today rebuilds the past from the current position.
-3. **2.3 reconciliation.** Compare the world's totals for a date with the Slipstream figures. Not started. Nothing in the real look-back has been checked against a trusted figure yet.
-4. **2.4 fog rules on real data.** Only negative rebuilt stock and undated orders fog today.
-5. Send the data team the five questions at the end of DATA-MAPPING section 11.
-6. State responses are 2 to 3 MB a day on real data. Fine locally; trim before hosting.
-
-## How it fits together
-
-| Where | What |
-|---|---|
-| `packages/domain` | Canonical dataset schema (zod), world-state API types, date helpers |
-| `packages/core` | `createCore(dataset)`: state for any date, exception rules, figures with their records, record cards, events |
-| `packages/scene` | Layout (ports, depots, villages, roads), vehicles per frame, workers and their schedules, A* |
-| `apps/api` | Fastify over the core. `AI_ERP_DATA_DIR` picks the dataset |
-| `apps/client` | PixiJS renderer (`world/`), React panels (`hud/`), app state (`store.ts`) |
-| `tools/dummygen` | Seeded business simulation that writes `data/dummy/` |
-| `ingest` | Python. Read-only pulls from the mirror, cached, mapped to the canonical dataset |
-
-Rules the code enforces:
-
-- The core never looks at facts dated after the state date.
-- Every resource bar figure is the sum of its record rows. Tests check this for every day.
-- ESLint stops the client and scene importing the core, and the core importing the game.
-- `apps/api/src/world.test.ts` checks, for all 90 dummy days, that what is drawn matches what the core reports.
-- `ingest` has no write function. Real data, `.env` and the cache are gitignored.
-
-## Notes
-
-- Fabric sign-in is a device code, cached by Windows. `.env` points at a sign-in shared with other projects on this machine.
-- Workspace and item ids live in `.env` only. The repo is public: keep them out.
-- If `npm run dev` says a port is in use, an earlier run is still alive.
-- After changing `tools/dummygen`, run `npm run generate -w @ai-erp/dummygen`. A test fails if `data/dummy` is out of date.
-- Business thresholds live in `packages/core/src/rules.ts`. Staffing lives in `packages/scene/src/workers.ts` and scales with `master.typicalQueue`.
+## Stakeholder summary
+The proof of concept now shows Midwich UK's real October trading as a living map: suppliers, deliveries, stock, customers and the people raising and entering orders. Each person is held to a 7.5 hour day, which shows who is overloaded. Debtors, creditors and cash are simulated, the job times are assumptions, and nothing has yet been reconciled against trusted figures. The next step is replaying the same period with an AI making the purchasing decisions, to compare outcomes.
