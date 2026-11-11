@@ -6,6 +6,7 @@ import type { GeoPoint } from './dataset';
 import type { IsoDate } from './dates';
 
 export type RecordType =
+  | 'person'
   | 'supplier'
   | 'customer'
   | 'product'
@@ -17,6 +18,7 @@ export type RecordType =
   | 'purchaseInvoice';
 
 export const RECORD_TYPES: readonly RecordType[] = [
+  'person',
   'supplier',
   'customer',
   'product',
@@ -33,8 +35,8 @@ export interface RecordRef {
   id: string;
 }
 
-export type BuildingId = 'goodsIn' | 'warehouse' | 'sales' | 'accounts' | 'dispatch';
-export const BUILDING_IDS: readonly BuildingId[] = ['goodsIn', 'warehouse', 'sales', 'accounts', 'dispatch'];
+export type BuildingId = 'goodsIn' | 'warehouse' | 'purchasing' | 'sales' | 'accounts' | 'dispatch';
+export const BUILDING_IDS: readonly BuildingId[] = ['goodsIn', 'warehouse', 'purchasing', 'sales', 'accounts', 'dispatch'];
 
 export type FigureId = 'stockValue' | 'debtors' | 'openSalesOrders' | 'openPurchaseOrders' | 'creditors' | 'cash';
 export const FIGURE_IDS: readonly FigureId[] = [
@@ -165,6 +167,7 @@ export interface MoneyMovement {
 }
 
 export type TaskKind =
+  | 'raise_po'
   | 'unload'
   | 'putaway'
   | 'pick'
@@ -187,6 +190,12 @@ export interface QueueItem {
   flag: 'ok' | 'warn' | 'late';
   categoryId: string | null;
   partyId: string | null;
+  /** The person doing this job, where the source says who. */
+  personId?: string;
+  /** Minutes the job takes, for jobs that count against a person's working day. */
+  minutes?: number;
+  /** True when the job falls after the person's working day has run out. */
+  overtime?: boolean;
 }
 
 export interface BuildingState {
@@ -196,6 +205,7 @@ export interface BuildingState {
 }
 
 export type AlertKind =
+  | 'person_over_capacity'
   | 'po_late'
   | 'po_unacknowledged'
   | 'po_no_due_date'
@@ -224,9 +234,30 @@ export interface FogFlag {
   reason: string;
 }
 
+export type PersonRole = 'buyer' | 'sales' | 'both';
+
+/** One person's desk work on the state date, set against the working day. */
+export interface PersonState {
+  id: string;
+  name: string;
+  role: PersonRole;
+  /** Orders raised or entered today. */
+  jobs: number;
+  /** Minutes those jobs take. */
+  minutes: number;
+  /** Minutes in a working day. */
+  capacityMinutes: number;
+  /** More work than fits in the day. */
+  overCapacity: boolean;
+  /** Jobs that fall after the working day has run out. */
+  overtimeJobs: number;
+}
+
 export interface WorldState {
   asOf: IsoDate;
   figures: Figure[];
+  /** Everyone with desk work on the state date. */
+  people: PersonState[];
   suppliers: SupplierState[];
   customers: CustomerState[];
   /** Open orders, plus any with a delivery received today. */
@@ -246,6 +277,8 @@ export interface WorldState {
 export interface WorldMaster {
   source: string;
   range: { start: IsoDate; end: IsoDate };
+  /** Everyone who raised or entered an order in the range, with what they mostly do. */
+  people: { id: string; name: string; role: PersonRole }[];
   /** `rank` 1 is the biggest supplier by value ordered. */
   suppliers: { id: string; name: string; rank: number }[];
   /** `rank` 1 is the biggest customer by revenue over the whole range. */

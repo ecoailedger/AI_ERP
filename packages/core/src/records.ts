@@ -4,8 +4,17 @@ import { money, plural } from './format';
 import type { Model } from './model';
 import { AGE_BAND_DAYS } from './rules';
 import { isPaid, type Snapshot } from './snapshot';
+import {
+  enterSalesOrderMinutes,
+  hoursAndMinutes,
+  ordersEntered,
+  raisePurchaseOrderMinutes,
+  WORKDAY_HOURS,
+  WORKDAY_MINUTES,
+} from './workload';
 
 const ENTITY: Record<RecordType, string> = {
+  person: 'people',
   supplier: 'suppliers',
   customer: 'customers',
   product: 'products',
@@ -314,6 +323,50 @@ export function recordCard(model: Model, snap: Snapshot, ref: RecordRef): Record
             .map((row) => [row.product.description, String(row.qty), String(row.age), row.qty > 0 ? money(row.value) : 'Untrusted']),
         },
         related: rows.slice(0, MAX_RELATED).map((row) => ({ ref: { type: 'product' as const, id: row.product.id }, label: row.product.description })),
+      });
+    }
+
+    case 'person': {
+      const person = model.person.get(ref.id);
+      if (!person) return null;
+      const raised = snap.purchaseOrders.filter((view) => view.order.raisedBy === person.id && view.order.orderDate === asOf);
+      const entered = ordersEntered(snap.salesOrders, asOf).filter((entry) => entry.first.order.enteredBy === person.id);
+      const jobs = [
+        ...raised.map((view) => ({
+          ref: { type: 'purchaseOrder' as const, id: view.order.id },
+          label: `Raised ${view.order.id}`,
+          detail: model.supplier.get(view.order.supplierId)?.name ?? view.order.supplierId,
+          minutes: raisePurchaseOrderMinutes(view.order),
+        })),
+        ...entered.map(({ first, lineCount }) => ({
+          ref: { type: 'salesOrder' as const, id: first.order.id },
+          label: `Entered ${first.order.sourceOrderId}`,
+          detail: model.customer.get(first.order.customerId)?.name ?? first.order.customerId,
+          minutes: enterSalesOrderMinutes(lineCount),
+        })),
+      ];
+      const minutes = jobs.reduce((sum, job) => sum + job.minutes, 0);
+      const role = model.role.get(person.id) ?? 'sales';
+      return base({
+        title: person.name,
+        subtitle: role === 'buyer' ? 'Buyer' : role === 'sales' ? 'Sales' : 'Buyer and sales',
+        status:
+          minutes > WORKDAY_MINUTES
+            ? { text: `${hoursAndMinutes(minutes - WORKDAY_MINUTES)} more than a ${WORKDAY_HOURS} hour day`, flag: 'late' }
+            : jobs.length === 0
+              ? { text: 'No orders today', flag: 'ok' }
+              : { text: `Fits in a ${WORKDAY_HOURS} hour day`, flag: 'ok' },
+        fields: [
+          { label: 'Orders today', value: String(jobs.length) },
+          { label: 'Time needed', value: hoursAndMinutes(minutes) },
+          { label: 'Working day', value: `${WORKDAY_HOURS} hours` },
+          { label: 'Share of the day', value: `${Math.round((minutes / WORKDAY_MINUTES) * 100)}%` },
+        ],
+        lines: {
+          columns: ['Job', 'For', 'Minutes'],
+          rows: jobs.slice(0, 60).map((job) => [job.label, job.detail, String(job.minutes)]),
+        },
+        related: jobs.map((job) => ({ ref: job.ref, label: job.label })),
       });
     }
 

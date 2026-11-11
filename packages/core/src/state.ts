@@ -9,6 +9,7 @@ import {
   type DockPallet,
   type FogFlag,
   type MoneyMovement,
+  type PersonState,
   type PurchaseOrderState,
   type QueueItem,
   type SalesOrderState,
@@ -17,6 +18,14 @@ import {
   type WorldState,
 } from '@ai-erp/domain';
 import { figureRecords } from './figures';
+import {
+  enterSalesOrderMinutes,
+  hoursAndMinutes,
+  ordersEntered,
+  raisePurchaseOrderMinutes,
+  WORKDAY_HOURS,
+  WORKDAY_MINUTES,
+} from './workload';
 import { money, moneyShort, plural, round2 } from './format';
 import { must, type Model } from './model';
 import {
@@ -233,6 +242,57 @@ export function buildState(model: Model, snap: Snapshot): WorldState {
     }
   }
 
+  // ---- Desk work: who raised and entered what today, set against the working day.
+  const people = new Map<string, PersonState>();
+  /** Adds a job to a person's day. Returns the fields that tie the job to them. */
+  const deskJob = (personId: string | null, minutes: number): Pick<QueueItem, 'personId' | 'minutes' | 'overtime'> => {
+    const person = personId === null ? undefined : model.person.get(personId);
+    if (!person) return {};
+    let load = people.get(person.id);
+    if (!load) {
+      load = {
+        id: person.id,
+        name: person.name,
+        role: model.role.get(person.id) ?? 'sales',
+        jobs: 0,
+        minutes: 0,
+        capacityMinutes: WORKDAY_MINUTES,
+        overCapacity: false,
+        overtimeJobs: 0,
+      };
+      people.set(person.id, load);
+    }
+    load.jobs += 1;
+    load.minutes += minutes;
+    // A job is overtime if the day has already run out by the time it would be finished.
+    const overtime = load.minutes > WORKDAY_MINUTES;
+    if (overtime) {
+      load.overCapacity = true;
+      load.overtimeJobs += 1;
+    }
+    return { personId: person.id, minutes, overtime };
+  };
+
+  const purchasing: QueueItem[] = [];
+  for (const view of snap.purchaseOrders) {
+    const { order } = view;
+    if (order.orderDate !== asOf) continue;
+    const minutes = raisePurchaseOrderMinutes(order);
+    purchasing.push({
+      kind: 'raise_po',
+      ref: { type: 'purchaseOrder', id: order.id },
+      label: `Raising ${order.id}`,
+      detail: `${supplierName(order.supplierId)}, ${plural(order.lines.length, 'line')}, ${minutes} min`,
+      value: round2(order.lines.reduce((sum, line) => sum + line.qty * line.unitCost, 0)),
+      ageDays: 0,
+      flag: 'ok',
+      categoryId: null,
+      partyId: order.supplierId,
+      ...deskJob(order.raisedBy, minutes),
+    });
+  }
+
+  const entered = new Map(ordersEntered(snap.salesOrders, asOf).map((entry) => [entry.first.order.id, entry]));
   const sales: QueueItem[] = [];
   const dispatch: QueueItem[] = [];
   let staleSalesOrders = 0;
@@ -254,8 +314,17 @@ export function buildState(model: Model, snap: Snapshot): WorldState {
       lateSalesOrders += 1;
       if (!worstLateOrder || view.daysLate > worstLateOrder.days) worstLateOrder = { id: order.id, days: view.daysLate };
     }
-    if (order.orderDate === asOf) {
-      sales.push({ ...base, kind: 'enter_order', label: `Entering ${order.id}`, detail: customer, flag: 'ok' });
+    const entry = entered.get(order.id);
+    if (entry) {
+      const minutes = enterSalesOrderMinutes(entry.lineCount);
+      sales.push({
+        ...base,
+        kind: 'enter_order',
+        label: `Entering ${order.sourceOrderId}`,
+        detail: `${customer}, ${plural(entry.lineCount, 'line')}, ${minutes} min`,
+        flag: 'ok',
+        ...deskJob(order.enteredBy, minutes),
+      });
     }
     // An order waiting for stock only becomes work for sales once its committed date has gone.
     if (view.status === 'back_ordered' && view.late) {
@@ -307,6 +376,7 @@ export function buildState(model: Model, snap: Snapshot): WorldState {
   const buildings: BuildingState[] = [
     { id: 'goodsIn', label: 'Goods-in', queue: goodsIn },
     { id: 'warehouse', label: 'Warehouse', queue: warehouse },
+    { id: 'purchasing', label: 'Purchasing', queue: purchasing },
     { id: 'sales', label: 'Sales office', queue: sales },
     { id: 'accounts', label: 'Accounts', queue: accounts },
     { id: 'dispatch', label: 'Dispatch', queue: dispatch },
@@ -339,6 +409,19 @@ export function buildState(model: Model, snap: Snapshot): WorldState {
       detail: `${supplierName(order.supplierId)} has not confirmed it, ${daysBetween(order.orderDate, asOf)} days after ordering`,
       ref: { type: 'purchaseOrder', id: order.id },
       weight: daysBetween(order.orderDate, asOf),
+    });
+  }
+  const overloaded = [...people.values()].filter((person) => person.overCapacity).sort((a, b) => b.minutes - a.minutes);
+  const busiest = overloaded[0];
+  if (busiest) {
+    alerts.push({
+      id: 'person_over_capacity',
+      kind: 'person_over_capacity',
+      severity: 'medium',
+      title: `${plural(overloaded.length, 'person', 'people')} with more than ${WORKDAY_HOURS} hours of work today`,
+      detail: `${busiest.name} has the most: ${hoursAndMinutes(busiest.minutes)} for ${plural(busiest.jobs, 'order')}`,
+      ref: { type: 'person', id: busiest.id },
+      weight: 400,
     });
   }
   const stalePurchaseOrders = purchaseOrders.filter((order) => order.stale);
@@ -462,6 +545,7 @@ export function buildState(model: Model, snap: Snapshot): WorldState {
   return {
     asOf,
     figures: FIGURE_IDS.map((id) => figureRecords(model, snap, id).figure),
+    people: [...people.values()].sort((a, b) => b.minutes - a.minutes || a.id.localeCompare(b.id)),
     suppliers: [...suppliers.values()],
     customers: [...customers.values()],
     purchaseOrders,

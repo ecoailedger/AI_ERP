@@ -32,6 +32,7 @@ import {
 } from '@ai-erp/scene';
 import { Application, Container, Graphics, Sprite, Text, type TextStyleOptions } from 'pixi.js';
 import { Art, drawBuilding, type Tex } from './art';
+import { hoursAndMinutes } from '../format';
 import { mix, PALETTE, partyColour } from './palette';
 
 export type PickTarget =
@@ -702,8 +703,10 @@ export class WorldView {
     }
 
     if (zoom >= WORKER_ZOOM) {
+      const personById = new Map(world.people.map((person) => [person.id, person]));
       for (const schedule of this.schedules) {
         const pose = workerPose(schedule, this.workSeconds);
+        const person = pose.personId === null ? undefined : personById.get(pose.personId);
         const point = at(pose);
         const step: 0 | 1 = pose.stride < 0.5 ? 0 : 1;
         const scale = clamp(0.9 / zoom, 1, 1.7);
@@ -721,9 +724,21 @@ export class WorldView {
           y: point.y - 11 * scale,
           radius: 13 * scale,
           z: 5,
-          target: { kind: 'task', task: pose.task },
-          lines: [pose.task.label, pose.task.detail],
+          // An avatar that is a person opens that person. A pool worker opens the job it is on.
+          target: person
+            ? { kind: 'records', refs: [{ type: 'person', id: person.id }], note: `On this now: ${pose.task.label}` }
+            : { kind: 'task', task: pose.task },
+          lines: person
+            ? [
+                person.name,
+                pose.task.label,
+                `${hoursAndMinutes(person.minutes)} of work today, in a ${hoursAndMinutes(person.capacityMinutes)} day`,
+              ]
+            : [pose.task.label, pose.task.detail],
         });
+        if (person?.overCapacity) {
+          drawables.push({ key: `over:${pose.key}`, tex: art.marker(PALETTE.late), x: point.x, y: point.y - 26 * scale, z: depthOf(pose.col, pose.row) + 0.06, scale: 0.55 * scale });
+        }
       }
     }
 

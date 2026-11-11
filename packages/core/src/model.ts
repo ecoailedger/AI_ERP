@@ -1,6 +1,8 @@
 /** Lookup tables over a dataset, built once. */
 import type {
   Customer,
+  Person,
+  PersonRole,
   Dataset,
   GoodsReceipt,
   Product,
@@ -14,6 +16,9 @@ import type {
 
 export interface Model {
   ds: Dataset;
+  person: Map<string, Person>;
+  /** What each person does, judged over the whole dataset. */
+  role: Map<string, PersonRole>;
   supplier: Map<string, Supplier>;
   customer: Map<string, Customer>;
   category: Map<string, ProductCategory>;
@@ -41,8 +46,15 @@ function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
 }
 
 export function buildModel(ds: Dataset): Model {
+  const buyers = new Set(ds.purchaseOrders.flatMap((order) => order.raisedBy ?? []));
+  const sellers = new Set(ds.salesOrders.flatMap((order) => order.enteredBy ?? []));
+  const role = new Map<string, PersonRole>(
+    ds.people.map((person) => [person.id, buyers.has(person.id) ? (sellers.has(person.id) ? 'both' : 'buyer') : 'sales']),
+  );
   return {
     ds,
+    person: byId(ds.people),
+    role,
     supplier: byId(ds.suppliers),
     customer: byId(ds.customers),
     category: byId(ds.categories),

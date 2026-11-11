@@ -2,9 +2,9 @@
  * Whole-world checks: the core's state, turned into a scene, for every day of the dummy data.
  * These hold the drawing to the data: what is on the map must match what the core says.
  */
-import { createCore } from '@ai-erp/core';
+import { createCore, WORKDAY_MINUTES } from '@ai-erp/core';
 import { addDays } from '@ai-erp/domain';
-import { buildFrame, buildLayout, buildSchedules, staffBuildings, STAFFING, STALLED_SLOTS, workerPose } from '@ai-erp/scene';
+import { buildFrame, buildLayout, buildSchedules, MAX_PEOPLE_DRAWN, staffBuildings, STAFFING, STALLED_SLOTS, workerPose } from '@ai-erp/scene';
 import { describe, expect, it } from 'vitest';
 import { DUMMY_DATA_DIR, loadDataset } from './data';
 
@@ -54,8 +54,13 @@ describe('the world, every day', () => {
       for (const entry of staffing) {
         const queue = state.buildings.find((building) => building.id === entry.building)?.queue ?? [];
         expect(entry.tasks.length + entry.backlog, `${entry.building} on ${day}`).toBe(queue.length);
-        expect(entry.workers).toBeLessThanOrEqual(STAFFING[entry.building].maxWorkers);
-        expect(entry.backlog).toBe(Math.max(0, queue.length - entry.workers * layout.staffing[entry.building].tasksPerWorker));
+        expect(entry.workers).toBeLessThanOrEqual(STAFFING[entry.building].maxWorkers + MAX_PEOPLE_DRAWN);
+        // Every job a person is doing is one of their own, and fits in their day.
+        for (const assignment of entry.assignments) {
+          if (assignment.personId === null) continue;
+          for (const task of assignment.tasks) expect(task.personId).toBe(assignment.personId);
+        }
+        expect(entry.backlog).toBeGreaterThanOrEqual(queue.filter((item) => item.overtime === true).length);
         if (queue.length === 0) expect(entry.workers).toBe(0);
         const refs = new Set(queue.map((item) => `${item.kind}:${item.ref.id}`));
         for (const task of entry.tasks) expect(refs.has(`${task.kind}:${task.ref.id}`)).toBe(true);
@@ -73,6 +78,22 @@ describe('the world, every day', () => {
       const b = buildSchedules(staffBuildings(layout, core.state(day)));
       expect(a.map((schedule) => workerPose(schedule, 73.2))).toEqual(b.map((schedule) => workerPose(schedule, 73.2)));
     }
+  });
+
+  it('never gives a person more work than fits in the working day without saying so', () => {
+    let overloadedDays = 0;
+    for (const day of days) {
+      const state = core.state(day);
+      for (const person of state.people) {
+        expect(person.overCapacity, `${person.id} on ${day}`).toBe(person.minutes > WORKDAY_MINUTES);
+        const items = state.buildings.flatMap((building) => building.queue).filter((item) => item.personId === person.id);
+        expect(items.reduce((sum, item) => sum + (item.minutes ?? 0), 0)).toBe(person.minutes);
+        expect(items.filter((item) => item.overtime === true)).toHaveLength(person.overtimeJobs);
+      }
+      if (state.people.some((person) => person.overCapacity)) overloadedDays += 1;
+    }
+    // The dummy data has one overloaded salesperson, so the limit can be seen.
+    expect(overloadedDays).toBeGreaterThan(5);
   });
 
   it('shows something stuck on most days, so the exceptions can be seen', () => {

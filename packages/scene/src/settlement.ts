@@ -41,6 +41,7 @@ export const BUILDINGS: Record<BuildingId, BuildingPlace> = {
   goodsIn: { id: 'goodsIn', label: 'Goods-in', rect: localRect(3, 3, 6, 5), door: local(6, 8), backlog: local(9, 7), height: 34 },
   warehouse: { id: 'warehouse', label: 'Warehouse', rect: localRect(12, 3, 7, 6), door: local(15, 9), backlog: local(19, 8), height: 46 },
   dispatch: { id: 'dispatch', label: 'Dispatch', rect: localRect(22, 3, 6, 5), door: local(24, 8), backlog: local(21, 7), height: 34 },
+  purchasing: { id: 'purchasing', label: 'Purchasing', rect: localRect(12, 22, 6, 4), door: local(15, 21), backlog: local(18, 22), height: 38 },
   sales: { id: 'sales', label: 'Sales office', rect: localRect(3, 21, 6, 5), door: local(6, 20), backlog: local(9, 21), height: 40 },
   accounts: { id: 'accounts', label: 'Accounts', rect: localRect(22, 21, 6, 5), door: local(24, 20), backlog: local(21, 21), height: 40 },
 };
@@ -94,9 +95,14 @@ export function plotAccess(index: number): Tile {
 }
 export const YARD: Rect = localRect(9, 10, 13, 10);
 
+/** Where buyers and salespeople work, outside their offices. Each person keeps the same spot. */
+export const BUYER_DESKS: Tile[] = [16, 17, 18, 19, 20, 21].map((lx) => local(lx, 20));
+export const SALES_DESKS: Tile[] = [local(9, 20), local(10, 20), local(11, 20), local(10, 21), local(11, 21), local(11, 19)];
+
 /** Fixed spots workers walk to. */
 export const SPOTS = {
   noticeBoard: local(10, 21),
+  orderDesk: local(18, 20),
   postIn: local(15, LAST - 1),
   debtGate: local(LAST - 1, 15),
 } as const;

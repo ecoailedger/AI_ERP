@@ -1,6 +1,6 @@
 import type { BuildingId, RecordCard, RecordRef } from '@ai-erp/domain';
-import { BUILDINGS, headcount } from '@ai-erp/scene';
-import { useEffect, useState } from 'react';
+import { BUILDINGS, staffBuildings } from '@ai-erp/scene';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { money } from '../format';
 import { actions, getState, useApp, type Selection } from '../store';
@@ -122,9 +122,16 @@ const QUEUE_ROWS = 250;
 /** A building's queue: the plain list of records it is working through. */
 function QueueView({ id }: { id: BuildingId }) {
   const building = useApp((state) => state.world?.buildings.find((candidate) => candidate.id === id));
-  const levels = useApp((state) => state.layout?.staffing);
+  const layout = useApp((state) => state.layout);
+  const world = useApp((state) => state.world);
+  const staff = useMemo(
+    () => (layout && world ? staffBuildings(layout, world).find((entry) => entry.building === id) : undefined),
+    [layout, world, id],
+  );
   if (!building) return null;
-  const { workers, backlog } = headcount(id, building.queue.length, levels);
+  const workers = staff?.workers ?? 0;
+  const backlog = staff?.backlog ?? 0;
+  const names = new Map((world?.people ?? []).map((person) => [person.id, person.name]));
 
   return (
     <>
@@ -133,7 +140,7 @@ function QueueView({ id }: { id: BuildingId }) {
         {building.queue.length} {building.queue.length === 1 ? 'job' : 'jobs'}, {workers} at work
       </p>
       <span className={`chip ${backlog > 0 ? 'late' : 'ok'}`}>
-        {backlog > 0 ? `${backlog} more than it can handle` : building.queue.length === 0 ? 'Nothing to do' : 'Keeping up'}
+        {backlog > 0 ? `${backlog} will not get done today` : building.queue.length === 0 ? 'Nothing to do' : 'Keeping up'}
       </span>
       <div className="table-wrap">
         <table>
@@ -148,10 +155,14 @@ function QueueView({ id }: { id: BuildingId }) {
             {building.queue.slice(0, QUEUE_ROWS).map((item, index) => (
               <tr key={`${item.kind}:${item.ref.id}:${index}`} className="clickable" onClick={() => actions.selectRecord(item.ref, item.label)}>
                 <td>
-                  <i className={`dot ${item.flag}`} />
+                  <i className={`dot ${item.overtime ? 'late' : item.flag}`} />
                   {item.label}
+                  {item.overtime && <small className="muted"> after the working day</small>}
                 </td>
-                <td>{item.detail}</td>
+                <td>
+                  {item.personId !== undefined && <strong>{names.get(item.personId)}: </strong>}
+                  {item.detail}
+                </td>
                 <td className="num">{money(item.value)}</td>
               </tr>
             ))}

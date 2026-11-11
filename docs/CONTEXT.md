@@ -136,6 +136,8 @@ Source tables and columns are mapped in [DATA-MAPPING.md](DATA-MAPPING.md). Do n
 | 2026-11-11 | An order more than 90 days overdue is "stale", shown apart from "late" |
 | 2026-11-11 | Customers are placed by real direction and distance from the site, to the nearest postcode area |
 | 2026-11-11 | Lorries are spaced along the road by days until due, not by share of lead time elapsed |
+| 2026-11-11 | The avatars for desk work are the real users on the orders, shown by alias. Each has a 7.5 hour working day |
+| 2026-11-11 | How long a job takes is an assumption for now (a fixed part plus time per line). To be replaced with timed figures |
 
 ## 12. Open questions
 
@@ -161,7 +163,9 @@ That comparison is the point. It answers "how much better would this have gone?"
 
 What this means for the build:
 
-- Purchasing needs its own place in the settlement. Today there is no buyer and no purchasing queue.
-- The feed says who raised each order (`PORD_USERID`, `PORD_AUTHOR`, `SOH_USERID`, `SOH_AUTHOR`). These are not pulled yet. People are shown by role or alias, never by name.
+- Purchasing has its own office in the settlement, and each buyer and salesperson is their own avatar. Built 2026-11-11.
+- The feed says who raised each order (`PORD_USERID`, `SOH_USERID`). These are pulled, and people are shown by alias, never by name or user id.
+- **A person can only work 7.5 hours a day.** Each order raised or entered takes time. Work beyond the day is marked and left undone. The same limit will apply to an AI doing the job, so the two can be compared fairly: an AI is not allowed to win by working a 50 hour day unless that is what is being tested.
+- A user id that does several days' work in one day is probably a system or an automated feed, not a person. Those need telling apart before any comparison.
 - The core needs a simulation mode: take real demand and real supplier lead times, swap in a purchasing policy, and run the days forward. The dummy data generator already does a simple version of this.
 - Deliveries, picking and loading stay in the world as consequences. They are not where the effort goes.

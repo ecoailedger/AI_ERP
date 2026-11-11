@@ -1,6 +1,6 @@
 import { UNKNOWN_DATE, type RecordRef, type WorldState } from '@ai-erp/domain';
 import { useState } from 'react';
-import { longDate, money } from '../format';
+import { hoursAndMinutes, longDate, money } from '../format';
 import { actions, getState, useApp } from '../store';
 import { locate } from '../world/locate';
 
@@ -116,6 +116,23 @@ function tables(world: WorldState): Table[] {
             money(pile.value),
           ],
         })),
+    },
+    {
+      id: 'people',
+      label: 'People',
+      columns: ['Person', 'Role', 'Orders today', 'Time needed', 'Working day', 'Share of the day'],
+      rows: world.people.map((person) => ({
+        ref: { type: 'person', id: person.id },
+        flag: person.overCapacity ? 'late' : person.minutes > person.capacityMinutes * 0.85 ? 'warn' : 'ok',
+        cells: [
+          person.name,
+          person.role === 'buyer' ? 'Buyer' : person.role === 'sales' ? 'Sales' : 'Buyer and sales',
+          String(person.jobs),
+          hoursAndMinutes(person.minutes),
+          hoursAndMinutes(person.capacityMinutes),
+          `${Math.round((person.minutes / person.capacityMinutes) * 100)}%`,
+        ],
+      })),
     },
     {
       id: 'customers',

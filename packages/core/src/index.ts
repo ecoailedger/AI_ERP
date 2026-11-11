@@ -27,6 +27,7 @@ import { buildState } from './state';
 
 export * from './rules';
 export { money, moneyShort } from './format';
+export * from './workload';
 
 export interface Core {
   /** The parts of the world that do not change with the date. */
@@ -106,6 +107,7 @@ export function createCore(dataset: Dataset): Core {
         master = {
           source: dataset.meta.source,
           range: { start: startDate, end: endDate },
+          people: dataset.people.map(({ id, name }) => ({ id, name, role: model.role.get(id) ?? 'sales' })),
           suppliers: dataset.suppliers.map(({ id, name }) => ({ id, name, rank: supplierRank.get(id) ?? dataset.suppliers.length })),
           customers: dataset.customers.map(({ id, name, location }) => ({ id, name, rank: rank.get(id) ?? dataset.customers.length, location })),
           site: dataset.meta.site,

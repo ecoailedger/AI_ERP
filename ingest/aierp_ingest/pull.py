@@ -77,7 +77,7 @@ def pull_all(start: date, refresh: bool = False) -> dict[str, pd.DataFrame]:
             WHERE NOT c.IsDeleteFl GROUP BY 1"""),
         "po_headers": pull("po_headers", {"t": "StxPORDER"}, f"""
             SELECT TRIM(PORD_ORDER) po, TRIM(PORD_SUPPLIER) supplier, PORD_DATEORD order_date,
-                   PORD_ACKDATE ack_date, PORD_DELDATE delivery_date
+                   PORD_ACKDATE ack_date, PORD_DELDATE delivery_date, TRIM(PORD_USERID) raised_by
             FROM t WHERE NOT IsDeleteFl AND PORD_TYPE = 'N' AND PORD_DATEORD >= {ts(po_from)}"""),
         "po_lines": pull("po_lines", {"t": "StxPOITEM"}, f"""
             SELECT TRIM(POIT_ORDER) po, POIT_LINE line, TRIM(POIT_PRODUCT) product, TRIM(POIT_STATUS) status,
@@ -92,7 +92,7 @@ def pull_all(start: date, refresh: bool = False) -> dict[str, pd.DataFrame]:
             GROUP BY 1"""),
         "so_headers": pull("so_headers", {"t": "StxSOHEAD"}, f"""
             SELECT TRIM(SOH_ORDREF) so, TRIM(SOH_ACCOUNT) customer, SOH_ORDDATE order_date, TRIM(SOH_STATUS) status,
-                   TRIM(SOH_ORDTYPE) order_type, TRIM(SOH_DELPOST) delivery_postcode
+                   TRIM(SOH_ORDTYPE) order_type, TRIM(SOH_DELPOST) delivery_postcode, TRIM(SOH_USERID) entered_by
             FROM t WHERE NOT IsDeleteFl AND SOH_ORDDATE >= {ts(orders_from)}"""),
         "so_invoiced_lines": pull("so_invoiced_lines", {"t": "StxSOITEM"}, f"""
             SELECT TRIM(SOI_ORDREF) so, TRIM(SOI_INVREF) invoice, TRIM(SOI_PRODUCT) product, SOI_ITQTY qty,

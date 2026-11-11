@@ -44,6 +44,7 @@ export const PALETTE = {
 /** Walls, roof and trim for each function's building. */
 export const BUILDING_COLOURS: Record<BuildingId, { wall: number; roof: number; trim: number }> = {
   goodsIn: { wall: 0xd8c9a3, roof: 0x4f7fa8, trim: 0x2f5878 },
+  purchasing: { wall: 0xe4d6b4, roof: 0x3f9aa0, trim: 0x27696e },
   warehouse: { wall: 0xcfc4ad, roof: 0x8a6f52, trim: 0x5e4a35 },
   dispatch: { wall: 0xd8c9a3, roof: 0xc0703a, trim: 0x8a4a22 },
   sales: { wall: 0xe4d6b4, roof: 0x5f9a6a, trim: 0x3c6e47 },
@@ -53,6 +54,7 @@ export const BUILDING_COLOURS: Record<BuildingId, { wall: number; roof: number; 
 /** The tunic colour of each building's workers. */
 export const WORKER_COLOURS: Record<BuildingId, number> = {
   goodsIn: 0x4f7fa8,
+  purchasing: 0x3f9aa0,
   warehouse: 0x9a7650,
   dispatch: 0xc0703a,
   sales: 0x5f9a6a,

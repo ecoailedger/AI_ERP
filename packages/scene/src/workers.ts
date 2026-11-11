@@ -8,13 +8,14 @@ import { dockSlots, lorryBays } from './frame';
 import { hashString, hashUnit } from './hash';
 import type { Tile } from './iso';
 import type { Layout } from './layout';
-import { BUILDINGS, DOCK_SLOTS, LOADING_SLOTS, LORRY_BAYS, SPOTS, VAN_BAYS, walkPath } from './settlement';
+import { BUILDINGS, BUYER_DESKS, SALES_DESKS, DOCK_SLOTS, LOADING_SLOTS, LORRY_BAYS, SPOTS, VAN_BAYS, walkPath } from './settlement';
 
 export type StaffingLevels = Record<BuildingId, { tasksPerWorker: number; maxWorkers: number }>;
 
 /** The least work one worker handles, and how many workers a building can hold. */
 export const STAFFING: StaffingLevels = {
   goodsIn: { tasksPerWorker: 2, maxWorkers: 6 },
+  purchasing: { tasksPerWorker: 6, maxWorkers: 6 },
   warehouse: { tasksPerWorker: 8, maxWorkers: 12 },
   sales: { tasksPerWorker: 10, maxWorkers: 8 },
   accounts: { tasksPerWorker: 6, maxWorkers: 6 },
@@ -37,16 +38,31 @@ export interface WorkerTask {
   to: Tile;
   /** Whether the worker carries something between the two ends. */
   carries: boolean;
+  /** The person whose job this is, for desk work. Null for work shared by a building's pool. */
+  personId: string | null;
+}
+
+/** One avatar and the jobs it works through. */
+export interface Assignment {
+  key: string;
+  /** Set when the avatar is a particular person doing their own desk work. */
+  personId: string | null;
+  tasks: WorkerTask[];
 }
 
 export interface Staffing {
   building: BuildingId;
+  /** Avatars drawn at this building. */
   workers: number;
-  /** Tasks the workers are getting through. */
+  assignments: Assignment[];
+  /** Every task being got through today. */
   tasks: WorkerTask[];
-  /** Tasks beyond what the building can handle. Shown as a pile at the door. */
+  /** Tasks that will not get done today: beyond the pool's capacity, or after someone's working day. Shown as a pile at the door. */
   backlog: number;
 }
+
+/** Avatars drawn for named people at one building. Beyond this the busiest are shown. */
+export const MAX_PEOPLE_DRAWN = 40;
 
 export type WorkerPhase = 'walk' | 'carry' | 'work';
 
@@ -63,6 +79,7 @@ interface Segment {
 export interface WorkerSchedule {
   key: string;
   building: BuildingId;
+  personId: string | null;
   segments: Segment[];
   duration: number;
   /** Start offset, so workers in a building do not move in step. */
@@ -72,6 +89,7 @@ export interface WorkerSchedule {
 export interface WorkerPose {
   key: string;
   building: BuildingId;
+  personId: string | null;
   col: number;
   row: number;
   phase: WorkerPhase;
@@ -105,8 +123,10 @@ function endpoints(layout: Layout, state: WorldState, building: BuildingId, item
       return { from: plot(item.categoryId), to: pick(LOADING_SLOTS, item.ref.id) };
     case 'load':
       return { from: pick(LOADING_SLOTS, item.ref.id), to: inside(pick(VAN_BAYS, item.ref.id), -1) };
+    case 'raise_po':
+      return { from: BUILDINGS.purchasing.door, to: item.personId === undefined ? SPOTS.orderDesk : pick(BUYER_DESKS, item.personId) };
     case 'enter_order':
-      return { from: BUILDINGS.sales.door, to: SPOTS.noticeBoard };
+      return { from: BUILDINGS.sales.door, to: item.personId === undefined ? SPOTS.noticeBoard : pick(SALES_DESKS, item.personId) };
     case 'chase_stock':
       return { from: BUILDINGS.sales.door, to: BUILDINGS.warehouse.door };
     case 'match_bill':
@@ -144,27 +164,53 @@ export function headcount(building: BuildingId, jobs: number, levels: StaffingLe
   return { workers, backlog: Math.max(0, jobs - workers * tasksPerWorker) };
 }
 
-/** Turns each building's queue into workers and their tasks. */
+/**
+ * Turns each building's queue into avatars and their tasks.
+ * Desk work belongs to a person: each person is their own avatar and does only their own jobs,
+ * and only as many as fit in their working day. Everything else is shared by the building's pool.
+ */
 export function staffBuildings(layout: Layout, state: WorldState): Staffing[] {
   return BUILDING_IDS.map((building) => {
     const queue = state.buildings.find((candidate) => candidate.id === building)?.queue ?? [];
-    const { workers, backlog } = headcount(building, queue.length, layout.staffing);
-    const handled = queue.slice(0, queue.length - backlog);
+    const toTask = (item: QueueItem): WorkerTask => ({
+      key: `${building}:${item.kind}:${item.ref.id}`,
+      building,
+      kind: item.kind,
+      ref: item.ref,
+      label: item.label,
+      detail: item.detail,
+      flag: item.flag,
+      carries: CARRY_KINDS.has(item.kind),
+      personId: item.personId ?? null,
+      ...endpoints(layout, state, building, item),
+    });
+
+    const byPerson = new Map<string, WorkerTask[]>();
+    let afterHours = 0;
+    const pooled: QueueItem[] = [];
+    for (const item of queue) {
+      if (item.personId === undefined) pooled.push(item);
+      else if (item.overtime === true) afterHours += 1;
+      else byPerson.set(item.personId, [...(byPerson.get(item.personId) ?? []), toTask(item)]);
+    }
+    const people = [...byPerson.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+
+    const pool = headcount(building, pooled.length, layout.staffing);
+    const handled = pooled.slice(0, pooled.length - pool.backlog).map(toTask);
+    const assignments: Assignment[] = [
+      ...people.slice(0, MAX_PEOPLE_DRAWN).map(([personId, tasks]) => ({ key: `${building}:${personId}`, personId, tasks })),
+      ...Array.from({ length: pool.workers }, (_, worker) => ({
+        key: `${building}:${worker}`,
+        personId: null,
+        tasks: handled.filter((_, index) => index % pool.workers === worker),
+      })).filter((assignment) => assignment.tasks.length > 0),
+    ];
     return {
       building,
-      workers,
-      backlog,
-      tasks: handled.map((item) => ({
-        key: `${building}:${item.kind}:${item.ref.id}`,
-        building,
-        kind: item.kind,
-        ref: item.ref,
-        label: item.label,
-        detail: item.detail,
-        flag: item.flag,
-        carries: CARRY_KINDS.has(item.kind),
-        ...endpoints(layout, state, building, item),
-      })),
+      workers: assignments.length,
+      assignments,
+      tasks: [...people.flatMap(([, tasks]) => tasks), ...handled],
+      backlog: pool.backlog + afterHours,
     };
   });
 }
@@ -182,9 +228,8 @@ function distancesAlong(path: readonly Tile[]): number[] {
 /** Each worker's repeating round: walk to the job, pick up, carry, set down, on to the next. */
 export function buildSchedules(staffing: readonly Staffing[]): WorkerSchedule[] {
   const schedules: WorkerSchedule[] = [];
-  for (const { building, workers, tasks } of staffing) {
-    for (let worker = 0; worker < workers; worker++) {
-      const own = tasks.filter((_, index) => index % workers === worker);
+  for (const { building, assignments } of staffing) {
+    for (const { key, personId, tasks: own } of assignments) {
       if (own.length === 0) continue;
       const segments: Segment[] = [];
       let clock = 0;
@@ -205,8 +250,7 @@ export function buildSchedules(staffing: readonly Staffing[]): WorkerSchedule[] 
         add('work', [task.to], 0.8 + hashUnit(task.key) * 1.4, task);
         position = task.to;
       }
-      const key = `${building}:${worker}`;
-      schedules.push({ key, building, segments, duration: clock, offset: hashUnit(key) * clock });
+      schedules.push({ key, building, personId, segments, duration: clock, offset: hashUnit(key) * clock });
     }
   }
   return schedules;
@@ -234,6 +278,7 @@ export function workerPose(schedule: WorkerSchedule, seconds: number): WorkerPos
   return {
     key: schedule.key,
     building: schedule.building,
+    personId: schedule.personId,
     col: a.col + (b.col - a.col) * t + 0.5,
     row: a.row + (b.row - a.row) * t + 0.5,
     phase: segment.phase,

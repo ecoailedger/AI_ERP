@@ -29,7 +29,7 @@ describe('api', () => {
     const earlier = (await get('/state?at=2026-09-15')).json<WorldState>();
     expect(earlier.asOf).toBe('2026-09-15');
     expect(earlier.figures.map((figure) => figure.id)).toEqual(FIGURE_IDS);
-    expect(earlier.buildings).toHaveLength(5);
+    expect(earlier.buildings).toHaveLength(6);
   });
 
   it('pulls an out-of-range date into range and rejects a malformed one', async () => {

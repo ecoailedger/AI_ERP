@@ -49,6 +49,7 @@ describe('dataset schema', () => {
         site: null,
         simulated: [],
       },
+      people: [],
       suppliers: [],
       customers: [],
       categories: [],

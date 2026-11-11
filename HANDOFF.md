@@ -5,8 +5,9 @@ Updated 2026-11-11.
 ## State
 
 - **Stage 1 is built.** Milestones 1.0 to 1.9 done, 1.10 half done (the people test is outstanding).
+- **People are in.** Each buyer and salesperson on the orders is an avatar with a 7.5 hour day (Stage 2b, milestones 2b.1 and 2b.2).
 - **Stage 2 has started.** The world runs on a real look-back from the UK orders mirror: 1 October to 10 November 2026. Milestone 2.1 is done, 2.2 is half done, 2.3 and 2.4 are not started.
-- `npm run check` passes: lint, typecheck, 80 tests, client build.
+- `npm run check` passes: lint, typecheck, 86 tests, client build.
 
 ## Run it
 
@@ -28,9 +29,16 @@ Stage 1:
 2. Decide whether hand-drawn pixel art is still wanted.
 3. A static demo build for hosting.
 
+Stage 2b (decisions, see CONTEXT section 13):
+
+1. **Job times are assumptions.** `packages/core/src/workload.ts` sets how long raising a PO and entering an order take. Get timed figures.
+2. Tell system and automated user ids apart from people. Some do several days of work in a day.
+3. Show what a buyer knew when they raised a PO: stock, demand, what was on order.
+4. 2b.3 to 2b.5: simulation mode, side-by-side comparison, an AI purchasing policy. Not started.
+
 Stage 2:
 
-1. **Old open orders swamp the late signal on real data.** Many PO lines are open long past their due date and look like orders never closed. Decide a rule (for example: more than 90 days overdue is "stale", shown apart from "late"), then build it in `packages/core`.
+1. Late lorries on real data jump in the last few days of the look-back. Likely goods receipts booked a few days after delivery. Ask the warehouse.
 2. **2.2 daily snapshot.** Nothing runs the ingest each day, so real history is not building up. Each run today rebuilds the past from the current position.
 3. **2.3 reconciliation.** Compare the world's totals for a date with the Slipstream figures. Not started. Nothing in the real look-back has been checked against a trusted figure yet.
 4. **2.4 fog rules on real data.** Only negative rebuilt stock and undated orders fog today.

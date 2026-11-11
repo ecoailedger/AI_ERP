@@ -32,6 +32,10 @@ export function locate(ref: RecordRef, world: WorldState, layout: Layout): Tile 
       if (order.status === 'allocated') return centreOf(BUILDINGS.warehouse.rect);
       return centreOf(BUILDINGS.dispatch.rect);
     }
+    case 'person': {
+      const role = world.people.find((person) => person.id === ref.id)?.role;
+      return centreOf((role === 'buyer' ? BUILDINGS.purchasing : BUILDINGS.sales).rect);
+    }
     case 'salesInvoice':
     case 'purchaseInvoice':
       return centreOf(BUILDINGS.accounts.rect);

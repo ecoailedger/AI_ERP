@@ -33,6 +33,8 @@ REBUILT = [
     "A sales order is split into one shipment per invoice, shipped on the invoice date. Picking is assumed the same day, allocation the working day before.",
     "A purchase order with no confirmation date is treated as confirmed when raised: confirmations are not reliably recorded.",
     "Customers on stop today are shown on stop for the whole period.",
+    "People are the user ids on purchase and sales orders, always shown by alias. A user id may be a system or an automated feed, not a person: those show up with far more work than fits in a day.",
+    "A sales order shipped in parts is several records sharing one source order id. Entering it counts once, for the parts and lines the look-back holds.",
     "A customer is placed by the postcode area it has most deliveries to, or failing that its account address. Positions are to the nearest postcode area. Customers outside the UK have no position.",
     "Customer payments, supplier bills and supplier payments are not in the feed. Debtors, creditors and cash are simulated: every invoice is paid on its due date.",
 ]
@@ -113,6 +115,7 @@ def build(start: str, end: str, real_names: bool, refresh: bool) -> tuple[dict, 
             continue
         purchase_orders.append({
             "id": po, "supplierId": header["supplier"], "orderDate": order_date,
+            "raisedBy": header["raised_by"] or None,
             "acknowledgedDate": iso(header["ack_date"]) or order_date, "lines": po_lines,
         })
         for arrived, received in sorted(delivered.items()):
@@ -135,6 +138,10 @@ def build(start: str, end: str, real_names: bool, refresh: bool) -> tuple[dict, 
         return max(dates) if dates else fallback
 
     sales_orders = []
+
+    def entered_by(header) -> str | None:
+        return (header["entered_by"] or None) if header is not None else None
+
     shipped_by_product: dict[str, float] = {}
     shipment_of_invoice: dict[str, str] = {}
     shipments = invoiced[(invoiced["qty"] > 0) & invoiced["product"].isin(products.index) & ~invoiced["invoice"].isin(credit_notes)]
@@ -153,7 +160,7 @@ def build(start: str, end: str, real_names: bool, refresh: bool) -> tuple[dict, 
         shipment_id = f"{so}_{invoice}"
         shipment_of_invoice[invoice] = shipment_id
         sales_orders.append({
-            "id": shipment_id, "customerId": customer, "orderDate": order_date,
+            "id": shipment_id, "customerId": customer, "sourceOrderId": so, "enteredBy": entered_by(header), "orderDate": order_date,
             "committedDate": max(committed(group, shipped), order_date),
             "allocatedDate": max(order_date, workday(add_days(shipped, -1), -1)),
             "pickedDate": shipped, "shippedDate": shipped, "deliveredDate": add_days(shipped, 1),
@@ -176,7 +183,7 @@ def build(start: str, end: str, real_names: bool, refresh: bool) -> tuple[dict, 
         # Line status 2 and 6 mean stock is allocated today. When that happened is not held.
         allocated = bool(group["line_status"].isin(["2", "6"]).all())
         sales_orders.append({
-            "id": f"{so}_OPEN", "customerId": header["customer"], "orderDate": order_date,
+            "id": f"{so}_OPEN", "customerId": header["customer"], "sourceOrderId": so, "enteredBy": entered_by(header), "orderDate": order_date,
             # No committed date on any line means nothing was promised, so the order cannot be late.
             "committedDate": max(committed(group, UNKNOWN_DATE), order_date),
             "allocatedDate": end if allocated else None, "pickedDate": None, "shippedDate": None, "deliveredDate": None,
@@ -320,6 +327,27 @@ def build(start: str, end: str, real_names: bool, refresh: bool) -> tuple[dict, 
         if customers[-1]["location"] is None:
             notes["customers with no position: outside the UK or no usable postcode"] += 1
 
+    # ---- People: the user ids behind the orders, replaced with aliases. The real ids go no further than this function.
+    raised: dict[str, int] = {}
+    entered: dict[str, int] = {}
+    for order in purchase_orders:
+        if order["raisedBy"]:
+            raised[order["raisedBy"]] = raised.get(order["raisedBy"], 0) + 1
+    for user in {(order["sourceOrderId"], order["enteredBy"]) for order in sales_orders if order["enteredBy"]}:
+        entered[user[1]] = entered.get(user[1], 0) + 1
+    people, person_id = [], {}
+    counters = {"Buyer": 0, "Sales": 0, "Buyer and sales": 0}
+    # Numbered from the busiest down, so "Buyer 01" is whoever raised the most orders.
+    for user in sorted(set(raised) | set(entered), key=lambda u: (-(raised.get(u, 0) + entered.get(u, 0)), u)):
+        role = "Buyer and sales" if user in raised and user in entered else "Buyer" if user in raised else "Sales"
+        counters[role] += 1
+        person_id[user] = f"PER{len(people) + 1:04d}"
+        people.append({"id": person_id[user], "name": f"{role} {counters[role]:02d}"})
+    for order in purchase_orders:
+        order["raisedBy"] = person_id.get(order["raisedBy"])
+    for order in sales_orders:
+        order["enteredBy"] = person_id.get(order["enteredBy"])
+
     dataset = {
         "meta": {
             "schemaVersion": SCHEMA_VERSION,
@@ -331,6 +359,7 @@ def build(start: str, end: str, real_names: bool, refresh: bool) -> tuple[dict, 
             "site": site,
             "simulated": ["debtors", "creditors", "cash"],
         },
+        "people": people,
         "suppliers": suppliers,
         "customers": customers,
         "categories": categories,

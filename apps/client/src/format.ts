@@ -19,6 +19,15 @@ export function moneyShort(value: number): string {
   return `${sign}£${Math.round(abs)}`;
 }
 
+/** "6 h 20 min" */
+export function hoursAndMinutes(minutes: number): string {
+  const whole = Math.round(minutes);
+  const hours = Math.floor(whole / 60);
+  const rest = whole % 60;
+  if (hours === 0) return `${rest} min`;
+  return rest === 0 ? `${hours} h` : `${hours} h ${rest} min`;
+}
+
 /** "£12,345.60" */
 export function money(value: number): string {
   return `${value < 0 ? '-' : ''}£${Math.abs(value).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;

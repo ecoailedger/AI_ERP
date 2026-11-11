@@ -356,6 +356,15 @@ The mirror's tables and columns were read directly on 2026-11-11. This answers m
 | Product status | `CMP_STATUS`, `CMP_ORDSTAT` | 📄 |
 | Customer name | `DLCUS_NDCODE` → `StxNDMAS.NDM_NAME` | ❓ |
 
+### Who raised and entered orders (added 2026-11-11)
+
+| Need | Column | Notes |
+|---|---|---|
+| Who raised a purchase order | `PORD_USERID` | Filled on every recent order. `PORD_AUTHOR` is also there but sometimes blank |
+| Who entered a sales order | `SOH_USERID` | Filled on every recent order. `SOH_AUTHOR` is blank |
+
+The adapter replaces each user id with an alias ("Buyer 01", "Sales 14") before anything is written. The real ids never leave the ingest run. Most ids both raise purchase orders and enter sales orders. A few do far more in a day than a person could, which suggests a system or automated feed.
+
 ### Not in the mirror
 
 | Wanted | Effect on the world |

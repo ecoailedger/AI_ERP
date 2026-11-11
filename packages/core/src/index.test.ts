@@ -15,6 +15,10 @@ function fixture(): Dataset {
       site: null,
       simulated: ['cash'],
     },
+    people: [
+      { id: 'U1', name: 'Buyer One' },
+      { id: 'U2', name: 'Sales One' },
+    ],
     suppliers: [
       { id: 'S1', name: 'Supplier One', leadTimeDays: 10 },
       { id: 'S2', name: 'Supplier Two', leadTimeDays: 15 },
@@ -42,6 +46,7 @@ function fixture(): Dataset {
         id: 'PO1',
         supplierId: 'S1',
         orderDate: '2026-09-01',
+        raisedBy: 'U1',
         acknowledgedDate: '2026-09-02',
         lines: [{ line: 1, productId: 'A', qty: 20, unitCost: 10, dueDate: '2026-09-10', originalDueDate: '2026-09-10' }],
       },
@@ -49,6 +54,7 @@ function fixture(): Dataset {
         id: 'PO2',
         supplierId: 'S2',
         orderDate: '2026-09-05',
+        raisedBy: null,
         acknowledgedDate: null,
         lines: [{ line: 1, productId: 'B', qty: 2, unitCost: 100, dueDate: '2026-09-20', originalDueDate: '2026-09-20' }],
       },
@@ -59,7 +65,9 @@ function fixture(): Dataset {
     salesOrders: [
       {
         id: 'SO1',
+        sourceOrderId: 'SO1',
         customerId: 'C1',
+        enteredBy: 'U2',
         orderDate: '2026-09-02',
         committedDate: '2026-09-04',
         allocatedDate: '2026-09-02',
@@ -70,7 +78,9 @@ function fixture(): Dataset {
       },
       {
         id: 'SO2',
+        sourceOrderId: 'SO2',
         customerId: 'C1',
+        enteredBy: 'U2',
         orderDate: '2026-09-05',
         committedDate: '2026-09-08',
         allocatedDate: null,
@@ -81,7 +91,9 @@ function fixture(): Dataset {
       },
       {
         id: 'SO3',
+        sourceOrderId: 'SO3',
         customerId: 'C2',
+        enteredBy: null,
         orderDate: '2026-09-22',
         committedDate: '2026-09-22',
         allocatedDate: '2026-09-22',
@@ -208,6 +220,7 @@ describe('sales orders', () => {
 
   it('puts picking with the warehouse and loading with dispatch', () => {
     expect(queue(core.state('2026-09-02'), 'warehouse').map((item) => item.kind)).toEqual(['pick']);
+    expect(queue(core.state('2026-09-02'), 'purchasing')).toEqual([]);
     expect(queue(core.state('2026-09-03'), 'dispatch').map((item) => item.kind)).toEqual(['load']);
   });
 });
@@ -243,6 +256,55 @@ describe('customers and money', () => {
   });
 });
 
+describe('people and the working day', () => {
+  it('gives each order raised or entered to the person who did it, with the time it takes', () => {
+    const first = core.state('2026-09-01');
+    // One line on the order: 20 minutes plus 6.
+    expect(first.people).toEqual([
+      { id: 'U1', name: 'Buyer One', role: 'buyer', jobs: 1, minutes: 26, capacityMinutes: 450, overCapacity: false, overtimeJobs: 0 },
+    ]);
+    expect(queue(first, 'purchasing')[0]).toMatchObject({ kind: 'raise_po', personId: 'U1', minutes: 26, overtime: false });
+    const second = core.state('2026-09-02');
+    expect(second.people[0]).toMatchObject({ id: 'U2', role: 'sales', jobs: 1, minutes: 20 });
+    expect(queue(second, 'sales').find((item) => item.kind === 'enter_order')?.personId).toBe('U2');
+  });
+
+  it('leaves an order with no known author unassigned', () => {
+    const state = core.state('2026-09-05');
+    expect(queue(state, 'purchasing')[0]?.personId).toBeUndefined();
+    expect(state.people.map((person) => person.id)).toEqual(['U2']);
+  });
+
+  it('counts an order shipped in parts as one entry, with all its lines', () => {
+    const split = fixture();
+    const template = split.salesOrders[0];
+    if (!template) throw new Error('fixture has no sales order');
+    split.salesOrders = ['A', 'B', 'C'].map((part) => ({ ...template, id: `SO9_${part}`, sourceOrderId: 'SO9', orderDate: '2026-09-08' }));
+    split.salesInvoices = [];
+    const state = createCore(split).state('2026-09-08');
+    const jobs = queue(state, 'sales').filter((item) => item.kind === 'enter_order');
+    // Three parts of one line each: entered once, 15 minutes plus 5 a line.
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]).toMatchObject({ label: 'Entering SO9', minutes: 30, personId: 'U2' });
+    expect(state.people[0]).toMatchObject({ jobs: 1, minutes: 30 });
+  });
+
+  it('marks the work that does not fit in a 7.5 hour day', () => {
+    const busy = fixture();
+    const template = busy.salesOrders[0];
+    if (!template) throw new Error('fixture has no sales order');
+    // 25 one-line orders at 20 minutes each is 500 minutes: 50 more than the day holds.
+    busy.salesOrders = Array.from({ length: 25 }, (_, i) => ({ ...template, id: `SOX${i}`, sourceOrderId: `SOX${i}`, orderDate: '2026-09-08', allocatedDate: null, pickedDate: null, shippedDate: null, deliveredDate: null }));
+    busy.salesInvoices = [];
+    const state = createCore(busy).state('2026-09-08');
+    expect(state.people[0]).toMatchObject({ id: 'U2', jobs: 25, minutes: 500, overCapacity: true, overtimeJobs: 3 });
+    expect(queue(state, 'sales').filter((item) => item.overtime)).toHaveLength(3);
+    expect(state.alerts.find((alert) => alert.kind === 'person_over_capacity')?.ref).toEqual({ type: 'person', id: 'U2' });
+    const card = createCore(busy).record({ type: 'person', id: 'U2' }, '2026-09-08');
+    expect(card?.status).toEqual({ text: '50 min more than a 7.5 hour day', flag: 'late' });
+  });
+});
+
 describe('traceability', () => {
   it('makes every figure equal the sum of its records, on every day', () => {
     for (let day = 1; day <= 30; day++) {
@@ -266,6 +328,7 @@ describe('traceability', () => {
 
   it('has a card for every record type, and none for records that do not exist yet', () => {
     const refs = [
+      { type: 'person', id: 'U1' },
       { type: 'supplier', id: 'S1' },
       { type: 'customer', id: 'C1' },
       { type: 'product', id: 'A' },

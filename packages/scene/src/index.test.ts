@@ -36,7 +36,8 @@ function master(supplierCount = 25, customerCount = 120): WorldMaster {
     customers: Array.from({ length: customerCount }, (_, i) => ({ id: `CUS${String(i + 1).padStart(4, '0')}`, name: `Customer ${i + 1}`, rank: i + 1, location: null })),
     site: null,
     categories: Array.from({ length: 12 }, (_, i) => ({ id: `CAT${String(i + 1).padStart(2, '0')}`, name: `Category ${i + 1}` })),
-    typicalQueue: { goodsIn: 0, warehouse: 0, sales: 0, accounts: 0, dispatch: 0 },
+    typicalQueue: { goodsIn: 0, warehouse: 0, purchasing: 0, sales: 0, accounts: 0, dispatch: 0 },
+    people: [],
     simulated: [],
   };
 }
@@ -67,6 +68,7 @@ function state(patch: Partial<WorldState> = {}): WorldState {
   return {
     asOf: '2026-09-11',
     figures: [],
+    people: [],
     suppliers: base.suppliers.map((s) => ({ id: s.id, name: s.name, openPoCount: 0, latePoCount: 0, stalePoCount: 0, openPoValue: 0, worstDaysLate: 0 })),
     customers: base.customers.map((c) => ({
       id: c.id,
@@ -398,12 +400,43 @@ describe('workers', () => {
   });
 
   it('sizes staffing to the business, so a backlog means an unusually busy day', () => {
-    const big = buildLayout({ ...master(), typicalQueue: { goodsIn: 100, warehouse: 800, sales: 0, accounts: 0, dispatch: 500 } });
+    const big = buildLayout({ ...master(), typicalQueue: { goodsIn: 100, warehouse: 800, purchasing: 0, sales: 0, accounts: 0, dispatch: 500 } });
     const warehouse = big.staffing.warehouse;
     expect(warehouse.tasksPerWorker * warehouse.maxWorkers).toBeGreaterThanOrEqual(1200);
     expect(headcount('warehouse', 800, big.staffing).backlog).toBe(0);
     expect(headcount('warehouse', 1500, big.staffing).backlog).toBeGreaterThan(0);
     expect(big.staffing.sales).toEqual(STAFFING.sales);
+  });
+
+  it('makes each person their own avatar, doing only their own jobs', () => {
+    const world = state();
+    const desk = (id: string, personId: string, overtime = false): QueueItem => ({
+      kind: 'enter_order',
+      ref: { type: 'salesOrder', id },
+      label: `Entering ${id}`,
+      detail: 'Customer',
+      value: 10,
+      ageDays: 0,
+      flag: 'ok',
+      categoryId: null,
+      partyId: 'CUS0001',
+      personId,
+      minutes: 20,
+      overtime,
+    });
+    const sales = world.buildings.find((building) => building.id === 'sales');
+    if (sales) sales.queue = [desk('SO1', 'P1'), desk('SO2', 'P1'), desk('SO3', 'P2'), desk('SO4', 'P1', true), desk('SO5', 'P1', true)];
+    const staffed = staffBuildings(layout, world).find((entry) => entry.building === 'sales');
+    expect(staffed?.workers).toBe(2);
+    expect(staffed?.assignments.map((assignment) => [assignment.personId, assignment.tasks.map((task) => task.ref.id)])).toEqual([
+      ['P1', ['SO1', 'SO2']],
+      ['P2', ['SO3']],
+    ]);
+    // The two jobs after P1's working day will not get done: they are the backlog.
+    expect(staffed?.backlog).toBe(2);
+    const schedules = buildSchedules(staffBuildings(layout, world));
+    expect(schedules.map((schedule) => schedule.personId)).toEqual(['P1', 'P2']);
+    expect(workerPose(schedules[0] ?? ({} as never), 5).personId).toBe('P1');
   });
 
   it('gives every worker a job that names a record', () => {

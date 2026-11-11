@@ -31,6 +31,9 @@ export const CustomerSchema = z.object({
   location: GeoPointSchema.nullable(),
 });
 
+/** Someone who makes decisions in the system: raises purchase orders, enters sales orders. */
+export const PersonSchema = z.object({ id, name: z.string() });
+
 export const ProductCategorySchema = z.object({ id, name: z.string() });
 
 export const ProductSchema = z.object({
@@ -55,6 +58,8 @@ export const PurchaseOrderSchema = z.object({
   id,
   supplierId: id,
   orderDate: isoDate,
+  /** The person who raised the order, or null if the source does not say. */
+  raisedBy: id.nullable(),
   /** Date the supplier confirmed the order, or null if never confirmed. */
   acknowledgedDate: isoDate.nullable(),
   lines: z.array(PurchaseOrderLineSchema).min(1),
@@ -79,6 +84,13 @@ export const SalesOrderLineSchema = z.object({
 export const SalesOrderSchema = z.object({
   id,
   customerId: id,
+  /**
+   * The order as the customer placed it. Equal to `id`, unless the source order was shipped in parts:
+   * then each part is its own record here and they share this id. Entering it was one piece of work.
+   */
+  sourceOrderId: id,
+  /** The person who entered the order, or null if the source does not say. */
+  enteredBy: id.nullable(),
   orderDate: isoDate,
   /** Delivery date promised to the customer. */
   committedDate: isoDate,
@@ -134,6 +146,7 @@ export const DatasetMetaSchema = z.object({
 
 export const DatasetSchema = z.object({
   meta: DatasetMetaSchema,
+  people: z.array(PersonSchema),
   suppliers: z.array(SupplierSchema),
   customers: z.array(CustomerSchema),
   categories: z.array(ProductCategorySchema),
@@ -146,6 +159,7 @@ export const DatasetSchema = z.object({
   purchaseInvoices: z.array(PurchaseInvoiceSchema),
 });
 
+export type Person = z.infer<typeof PersonSchema>;
 export type GeoPoint = z.infer<typeof GeoPointSchema>;
 export type Supplier = z.infer<typeof SupplierSchema>;
 export type Customer = z.infer<typeof CustomerSchema>;
@@ -165,6 +179,7 @@ export type Dataset = z.infer<typeof DatasetSchema>;
 /** The files a dataset is stored as, one per entity. */
 export const DATASET_FILES = [
   'meta',
+  'people',
   'suppliers',
   'customers',
   'categories',

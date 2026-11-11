@@ -13,6 +13,7 @@ import {
   type GoodsReceipt,
   type IsoDate,
   type OpeningStock,
+  type Person,
   type Product,
   type ProductCategory,
   type PurchaseInvoice,
@@ -65,6 +66,11 @@ const PO_CHANCE_PER_SUPPLIER_DAY = 0.4;
 const UNACKNOWLEDGED_RATE = 0.015;
 const PARTIAL_RECEIPT_RATE = 0.08;
 const OPENING_CASH = 2_000_000;
+/** Invented first names for the people who raise and enter orders. */
+const BUYER_NAMES = ['Ada', 'Bram', 'Cleo', 'Dov', 'Esme', 'Finn'] as const;
+const SELLER_NAMES = ['Gus', 'Hana', 'Ivo', 'Jem', 'Kit', 'Lena', 'Milo', 'Nell', 'Otis', 'Pia', 'Quin', 'Rae', 'Sol', 'Tess'] as const;
+/** The biggest customers all belong to the first salesperson. */
+const KEY_ACCOUNTS = 8;
 /** An invented site, roughly in the middle of Great Britain. Customers are scattered round it. */
 const SITE = { lat: 52.5, lon: -1.5 };
 /** How far below zero the seeded bad stock row goes. Enough to make its category untrustworthy. */
@@ -231,6 +237,17 @@ export function generate(options: GenerateOptions = DEFAULT_OPTIONS): Dataset {
     };
   });
 
+  // ---- People. Buyers each own a set of suppliers. One salesperson holds the biggest accounts,
+  // so on busy days they have more to enter than fits in a working day.
+  const buyers: Person[] = BUYER_NAMES.map((name, index) => ({ id: `PER${pad(index + 1, 3)}`, name }));
+  const sellers: Person[] = SELLER_NAMES.map((name, index) => ({ id: `PER${pad(buyers.length + index + 1, 3)}`, name }));
+  const buyerFor = (supplierIndex: number): string => (buyers[supplierIndex % buyers.length] as Person).id;
+  const sellerFor = (customerId: string): string => {
+    const customerIndex = Number(customerId.slice(3)) - 1;
+    const index = customerIndex < KEY_ACCOUNTS ? 0 : 1 + (customerIndex % (sellers.length - 1));
+    return (sellers[index] as Person).id;
+  };
+
   // ---- Simulation
   const purchaseOrders: PurchaseOrder[] = [];
   const goodsReceipts: GoodsReceipt[] = [];
@@ -357,7 +374,9 @@ export function generate(options: GenerateOptions = DEFAULT_OPTIONS): Dataset {
         }
         const order: SalesOrder = {
           id: `SO${300001 + salesOrders.length}`,
+          sourceOrderId: `SO${300001 + salesOrders.length}`,
           customerId: customer.id,
+          enteredBy: sellerFor(customer.id),
           orderDate: day,
           committedDate: nextWorkday(addDays(day, rng.int(2, 5))),
           allocatedDate: null,
@@ -386,7 +405,9 @@ export function generate(options: GenerateOptions = DEFAULT_OPTIONS): Dataset {
       const sim = negativeStockSim;
       const order: SalesOrder = {
         id: `SO${300001 + salesOrders.length}`,
+        sourceOrderId: `SO${300001 + salesOrders.length}`,
         customerId: (customers[9] as Customer).id,
+        enteredBy: null,
         orderDate: day,
         committedDate: day,
         allocatedDate: day,
@@ -436,6 +457,7 @@ export function generate(options: GenerateOptions = DEFAULT_OPTIONS): Dataset {
           id: `PO${100001 + purchaseOrders.length}`,
           supplierId: supplier.id,
           orderDate: day,
+          raisedBy: buyerFor(supplierIndex),
           acknowledgedDate: unacknowledged ? null : withinRange(nextWorkday(addDays(day, rng.int(1, 2)))),
           lines: low.map((entry, index) => ({
             line: index + 1,
@@ -476,6 +498,7 @@ export function generate(options: GenerateOptions = DEFAULT_OPTIONS): Dataset {
       site: SITE,
       simulated: ['creditors', 'cash'],
     },
+    people: [...buyers, ...sellers],
     suppliers,
     customers,
     categories,

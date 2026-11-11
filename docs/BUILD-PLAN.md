@@ -332,11 +332,19 @@ The direction changed: see CONTEXT section 13. Before the play loops, make decis
 
 | # | Milestone | Exit test |
 |---|---|---|
-| 2b.1 | Purchasing building and buyers: each PO raised is a visible act by a role | Hovering a buyer shows the PO being raised and what stock and demand looked like |
-| 2b.2 | Pull who raised each order from the feed, shown by alias | Orders can be grouped by buyer in the table view |
+| 2b.1 ✅ | Purchasing building and buyers: each PO raised is a visible act by a role | Hovering a buyer shows the PO being raised and what stock and demand looked like |
+| 2b.2 ✅ | Pull who raised each order from the feed, shown by alias | The table view lists each person's orders and hours for the day |
 | 2b.3 | Simulation mode in the core: real demand and lead times, a swappable purchasing policy | The same period replays under a simple rule-based policy, deterministically |
 | 2b.4 | Side-by-side comparison of two runs | Stock value, stock-outs and late customer orders shown for actual versus simulated |
 | 2b.5 | An AI purchasing policy | Its run can be compared with the actual one, with every PO it raised traceable to its reasons |
+
+Stage 2b notes (2026-11-11):
+
+- Each person with orders on the day is an avatar. Hovering shows their hours against a 7.5 hour day; clicking opens their orders.
+- Work that does not fit in the day is flagged on the person and piled at the office door.
+- **The job times are assumptions**, set in `packages/core/src/workload.ts`: 20 minutes plus 6 a line to raise a PO, 15 plus 5 a line to enter a sales order. Nobody has timed these.
+- 2b.1's exit test is only part met: hovering a buyer shows the PO and their hours, but not yet what stock and demand looked like when they raised it.
+- Not yet told apart: user ids that are systems or automated feeds rather than people.
 
 ### Stage 3: Play (~20 h)
 
