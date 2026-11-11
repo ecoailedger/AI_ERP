@@ -67,6 +67,10 @@ export function useApp<T>(select: (state: AppState) => T): T {
 
 const fail = (error: unknown): void => set({ error: error instanceof Error ? error.message : String(error), playing: false });
 
+/** How long the page waits for the core to come up: 30 tries, a second apart. */
+const START_ATTEMPTS = 30;
+const START_RETRY_MS = 1000;
+
 async function showDate(date: IsoDate): Promise<void> {
   const world = await api.state(date);
   // A later request may have finished first; only the date still wanted is shown.
@@ -75,12 +79,20 @@ async function showDate(date: IsoDate): Promise<void> {
 
 export const actions = {
   async init(): Promise<void> {
-    try {
-      const master = await api.master();
-      set({ master, layout: buildLayout(master), date: master.range.end });
-      await showDate(master.range.end);
-    } catch (error) {
-      fail(error);
+    // The page can open before the core has finished loading its data, so keep trying for a while.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const master = await api.master();
+        set({ master, layout: buildLayout(master), date: master.range.end, error: null });
+        await showDate(master.range.end);
+        return;
+      } catch (error) {
+        if (attempt >= START_ATTEMPTS) {
+          fail(error);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, START_RETRY_MS));
+      }
     }
   },
 
