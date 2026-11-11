@@ -1,0 +1,4 @@
+azure-identity>=1.17
+deltalake>=1.0
+pandas>=2.0
+pyarrow>=15

@@ -309,6 +309,8 @@ Minimum Stage 1 set: `suppliers`, `customers`, `products`, `categories`, `locati
 
 ## 10. Open questions (for the data team)
 
+Most of these were answered on 2026-11-11 by reading the mirror. See section 11.
+
 1. Can the supplier master (name, country, currency, terms) be added to the mirror?
 2. Can `pogrn` (goods received notes) and `stmove` (stock movements) be mirrored? They unlock exact dock events and real stock history.
 3. Purchase ledger and sales ledger transactions: are they in Fabric anywhere? (purchase invoices, receipts, payments)
@@ -317,3 +319,68 @@ Minimum Stage 1 set: `suppliers`, `customers`, `products`, `categories`, `locati
 6. What are `ES######` sales order refs? Include or exclude?
 7. Which `StxDLCUST` code marks intercompany customers?
 8. Retention: earliest `PORD_DATEORD` and `SOH_ORDDATE` still in the mirror.
+
+## 11. What the mirror holds: checked 2026-11-11
+
+The mirror's tables and columns were read directly on 2026-11-11. This answers most of section 10. Where this section and the tables above disagree, this section is right.
+
+### Answers to section 10
+
+| # | Question | Answer |
+|---|---|---|
+| 1 | Supplier master | **In the mirror.** `StxPLSUPP`: `PLSUP_SUPPLIER`, `PLSUP_NDCODE`, `PLSUP_CURRENCY`, `PLSUP_TERMCODE`. Names come from `StxNDMAS` (`NDM_NDCODE`, `NDM_NAME`, `NDM_COUNTRY`). Payment terms in days come from `StxPLTERM` (`PLTC_CODE`, `PLTC_DAYS1`) |
+| 2 | Goods received notes and stock movements | **Not in the mirror.** Still to ask for. Until then a delivery is dated from `POIT_LASTDEL`, and stock history is worked back from today |
+| 3 | Purchase and sales ledgers | **Not in the mirror.** No supplier bills, no payments either way. `StxSOINVOICE` does hold `SOINV_DUEDATE` and `SOINV_VATTOT` |
+| 4 | Mirror names for the unconfirmed columns | See the table below |
+| 5 | `StxSTLOC` columns | `STLOC_LOC`, `STLOC_COMPANY`, `STLOC_NDCODE`, `STLOC_DESC` |
+| 6 | `ES` sales order refs | Almost none exist. Ignore them. Every header in the mirror has order type `O`: quotes and credit orders are not there. Credit notes show up as `SOINV_TYPE = 'C'` |
+| 7 | Intercompany customer flag | **Still open.** Candidates on `StxDLCUST`: `DLCUS_GRPACCIND`, `DLCUS_GROUP`, `DLCUS_DIV` |
+| 8 | Retention | Purchase and sales order headers go back many years. History has not been purged from the mirror |
+
+### Column names confirmed
+
+| Need | Column | Was |
+|---|---|---|
+| Sales order customer | `SOH_ACCOUNT` | 📄 |
+| Sales order status | `SOH_STATUS` (`C` complete, `I`, `H`) | new |
+| Sales line warehouse | `SOI_STLOC`, and `SOH_STLOC` on the header | 📄 |
+| Sales line number | `SOI_SEQ`, `SOI_LINSEQ` | 📄 |
+| PO line number | `POIT_LINE` | 📄 |
+| PO line price and value | `POIT_PRICE`, `POIT_VALORD`, `POIT_VALDEL`, `POIT_VALINV` | ❓ |
+| PO currency | `PORD_CURRENCY` | new |
+| PO confirmed by supplier | `PORD_ACKDATE`, `PORD_ACKREF`, `PORD_ACKSTATUS` | 📄 |
+| PO expected delivery | `POIT_EDD`, and `PORD_DELDATE` on the header | new |
+| PO invoiced quantity | `POIT_QTYINV`, `PORD_INVQTY` | new |
+| Stock on order | `STK_OSPURCH` | 📄 |
+| Product cost | `CMP_CURCOST`, `CMP_LASTCOST`, `CMP_ESTCOST`, per `CMP_PERPU` units. Also `StxPRODUCTCOSTS` (`PRODUCT`, `COMPANY`, `GBPCOST`, `COST`, `CURRENCY`) | 📄 |
+| Product status | `CMP_STATUS`, `CMP_ORDSTAT` | 📄 |
+| Customer name | `DLCUS_NDCODE` → `StxNDMAS.NDM_NAME` | ❓ |
+
+### Not in the mirror
+
+| Wanted | Effect on the world |
+|---|---|
+| Original due date and slip count (`oduedate`, `duecount`) | "Promised versus now" cannot be shown. Only today's due date is known |
+| Cancelled quantity on a PO line | A closed line that came up short is treated as delivered in full at the short quantity |
+| Despatch date on a sales line | The invoice date stands in for the ship date |
+| Latest cost per stock location (`latecost`) | Stock is valued at `CMP_CURCOST / CMP_PERPU` |
+| Lead time, minimum order quantity | Lead time is taken from each supplier's own orders |
+
+### What the data is like
+
+Things that shape how the world reads the feed. No figures here, on purpose.
+
+- **Due dates.** Many open PO lines have no `POIT_DUEDATE`. `POIT_REQDATE`, `POIT_EDD` or the header's `PORD_DELDATE` nearly always fills the gap, so the adapter takes the first of those that is a real date.
+- **Supplier confirmation is not reliably recorded.** A large share of orders that go on to be delivered have no `PORD_ACKDATE`. The adapter treats an order with no confirmation date as confirmed when raised, so "not confirmed" alerts are off for this feed.
+- **Old open orders.** Some PO lines are still open long after their due date, and some sales lines long after their committed date. They look like orders that were never closed rather than deliveries still expected. They swell the late counts.
+- **Uninvoiced sales lines.** `StxSOITEM` holds a very large number of old uninvoiced lines with status `1`. Open orders have to be found through the header (`SOH_STATUS <> 'C'` and a recent `SOH_ORDDATE`), not from the lines alone.
+- **Many products, few stocked.** The product master is far larger than the set of products with stock or movement. The adapter keeps only products that are stocked, on order or sold in the window.
+- **Categories.** There are too many `CMP_CATEGORY` codes for twelve stock plots. The adapter uses the business line (`CMP_ANALCODE`, named by `StxAPDESC` type `M`): the eleven biggest by stock value, and one plot for the rest.
+
+### Still to ask the data team
+
+1. Can `pogrn` (goods received notes) and `stmove` (stock movements) be added to the mirror?
+2. Can the purchase and sales ledger transactions be added, or are they in Fabric somewhere else?
+3. Which `StxDLCUST` code marks an intercompany customer?
+4. Should PO lines open long past their due date be treated as dead orders? Is there a rule for closing them?
+5. What do `SOH_STATUS` values `I` and `H` mean exactly?

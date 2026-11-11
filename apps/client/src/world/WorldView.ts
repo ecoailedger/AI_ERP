@@ -494,31 +494,38 @@ export class WorldView {
     const close = zoom >= 0.5;
 
     // Suppliers
-    const portState = new Map(frame.ports.map((port) => [port.supplierId, port]));
+    const portState = new Map(frame.ports.map((port) => [port.key, port]));
     for (const port of layout.ports) {
-      const sprite = portState.get(port.supplierId);
+      const sprite = portState.get(port.key);
       if (!sprite) continue;
+      // A depot shared by small suppliers is drawn in a plain colour: it belongs to none of them.
+      const colour = sprite.supplierId !== null ? partyColour(sprite.supplierId) : 0x9a968a;
       const centre = at({ col: port.tile.col + 0.5, row: port.tile.row + 0.5 });
       const z = depthOf(port.tile.col + 3, port.tile.row + 3);
-      drawables.push({ key: `port:${port.supplierId}`, tex: art.port(partyColour(port.supplierId), sprite.containers), ...centre, z });
+      drawables.push({ key: `port:${port.key}`, tex: art.port(colour, sprite.containers), ...centre, z });
+      if (sprite.fogged) drawables.push({ key: `fog:port:${port.key}`, tex: art.fog(), x: centre.x, y: centre.y - 20, z: z + 0.2, scale: 1.5 });
       pickables.push({
         ...centre,
         y: centre.y - 14,
         radius: 92,
         z: 1,
-        target: { kind: 'records', refs: [{ type: 'supplier', id: port.supplierId }], note: null },
-        lines: [sprite.label],
+        target: {
+          kind: 'records',
+          refs: port.supplierIds.map((id) => ({ type: 'supplier' as const, id })),
+          note: sprite.fogged ? sprite.fogReason : port.shared ? sprite.label : null,
+        },
+        lines: sprite.fogged ? [sprite.label, sprite.fogReason] : [sprite.label],
       });
       if (sprite.lateCount > 0) {
         specs.push({
-          key: `port:${port.supplierId}`,
+          key: `port:${port.key}`,
           text: `${port.name}: ${sprite.lateCount} late`,
           x: centre.x,
           y: centre.y - 96 - 14 / zoom,
           style: 'alert',
         });
       } else if (close) {
-        specs.push({ key: `port:${port.supplierId}`, text: port.name, x: centre.x, y: centre.y - 96 - 12 / zoom, style: 'place' });
+        specs.push({ key: `port:${port.key}`, text: port.name, x: centre.x, y: centre.y - 96 - 12 / zoom, style: 'place' });
       }
     }
 

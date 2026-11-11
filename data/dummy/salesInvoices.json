@@ -3349,7 +3349,7 @@
 {"id":"SI403348","salesOrderId":"SO303419","customerId":"CUS0005","date":"2026-10-01","net":5287.94,"dueDate":"2026-10-31","paidDate":"2026-10-29"},
 {"id":"SI403349","salesOrderId":"SO303420","customerId":"CUS0002","date":"2026-10-01","net":3235.64,"dueDate":"2026-11-15","paidDate":null},
 {"id":"SI403350","salesOrderId":"SO303421","customerId":"CUS0076","date":"2026-10-01","net":1684.86,"dueDate":"2026-10-31","paidDate":null},
-{"id":"SI403351","salesOrderId":"SO303473","customerId":"CUS0010","date":"2026-10-02","net":27853.05,"dueDate":"2026-11-01","paidDate":null},
+{"id":"SI403351","salesOrderId":"SO303473","customerId":"CUS0010","date":"2026-10-02","net":79717.35,"dueDate":"2026-11-01","paidDate":null},
 {"id":"SI403352","salesOrderId":"SO303345","customerId":"CUS0006","date":"2026-10-02","net":565.86,"dueDate":"2026-10-16","paidDate":"2026-10-14"},
 {"id":"SI403353","salesOrderId":"SO303347","customerId":"CUS0079","date":"2026-10-02","net":9762.3,"dueDate":"2026-11-01","paidDate":"2026-10-29"},
 {"id":"SI403354","salesOrderId":"SO303357","customerId":"CUS0001","date":"2026-10-02","net":3310.14,"dueDate":"2026-11-01","paidDate":null},

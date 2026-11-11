@@ -1,8 +1,10 @@
-import type { RecordRef, WorldState } from '@ai-erp/domain';
+import { UNKNOWN_DATE, type RecordRef, type WorldState } from '@ai-erp/domain';
 import { useState } from 'react';
 import { longDate, money } from '../format';
 import { actions, getState, useApp } from '../store';
 import { locate } from '../world/locate';
+
+const TABLE_ROWS = 500;
 
 type Flag = 'ok' | 'warn' | 'late';
 interface Row {
@@ -48,13 +50,13 @@ function tables(world: WorldState): Table[] {
         .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
         .map((order) => ({
           ref: { type: 'purchaseOrder', id: order.id },
-          flag: order.late ? 'late' : order.unacknowledged ? 'warn' : 'ok',
+          flag: order.late ? 'late' : order.unacknowledged || order.dueUnknown ? 'warn' : 'ok',
           cells: [
             order.id,
             supplier.get(order.supplierId) ?? order.supplierId,
             order.orderDate,
-            order.dueDate,
-            order.late ? `${order.daysLate} days late` : PO_STATUS[order.status],
+            order.dueUnknown ? 'Not held' : order.dueDate,
+            order.late ? `${order.daysLate} days late` : order.dueUnknown ? 'No due date' : PO_STATUS[order.status],
             money(order.value),
           ],
         })),
@@ -73,7 +75,7 @@ function tables(world: WorldState): Table[] {
             order.id,
             customer.get(order.customerId) ?? order.customerId,
             order.orderDate,
-            order.committedDate,
+            order.committedDate >= UNKNOWN_DATE ? 'Not held' : order.committedDate,
             order.late ? `${SO_STATUS[order.status]}, ${order.daysLate} days late` : SO_STATUS[order.status],
             money(order.value),
           ],
@@ -169,7 +171,7 @@ export function TableView() {
                 </td>
               </tr>
             )}
-            {table.rows.map((row) => (
+            {table.rows.slice(0, TABLE_ROWS).map((row) => (
               <tr key={row.ref.id} className="clickable" onClick={() => open(row.ref)}>
                 {row.cells.map((cell, index) => (
                   <td key={index} className={index === row.cells.length - 1 ? 'num' : undefined}>
@@ -182,6 +184,11 @@ export function TableView() {
           </tbody>
         </table>
       </div>
+      {table.rows.length > TABLE_ROWS && (
+        <p className="muted">
+          Showing the first {TABLE_ROWS} of {table.rows.length.toLocaleString('en-GB')} rows.
+        </p>
+      )}
     </section>
   );
 }

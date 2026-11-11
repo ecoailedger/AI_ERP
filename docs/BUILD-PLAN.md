@@ -308,10 +308,19 @@ Stage 1 notes (2026-11-11):
 
 | # | Milestone | Est. | Exit test |
 |---|---|---|---|
-| 2.1 | `ingest` adapters (PO, SO, invoice, stock, product, customer) | 5 h | Snapshot parquet validates against the domain schema |
-| 2.2 | Daily snapshot schedule + aliasing | 2 h | 3 consecutive daily snapshots on disk. No real names shown by default |
+| 2.1 ✅ | `ingest` adapters (PO, SO, invoice, stock, product, customer) | 5 h | Snapshot validates against the domain schema |
+| 2.2 ◐ | Daily snapshot schedule + aliasing | 2 h | 3 consecutive daily snapshots on disk. No real names shown by default |
 | 2.3 | Reconciliation test vs Slipstream figures | 3 h | All totals match for one date (PID exit test) |
 | 2.4 | Fog rules on real data | 2 h | Each fog area links to the rule that triggered it |
+
+Stage 2 notes (2026-11-11):
+
+- **2.1 is done as a look-back.** `python -m aierp_ingest.snapshot --start 2026-10-01` pulls from the mirror, caches the pulls, and writes a canonical dataset to `data/real/lookback/`. `npm run dev:real` runs the world on it. See `ingest/README.md`.
+- The snapshot is JSON in the same shape as `data/dummy`, not parquet. The raw pulls are cached as parquet.
+- **2.2 is half done (◐).** Aliasing is built and is the default. The daily schedule is not set up: nothing runs the ingest each day yet, so real history is not accumulating.
+- **2.3 and 2.4 are not started.** Nothing has been reconciled against Slipstream figures. Fog on real data covers negative rebuilt stock and orders with no due date only.
+- The world now sizes itself to the business: suppliers beyond the biggest 34 share six depots, and worker capacity scales with each building's usual queue.
+- What the mirror turned out to hold is in DATA-MAPPING section 11.
 
 ### Stage 3: Play (~20 h)
 

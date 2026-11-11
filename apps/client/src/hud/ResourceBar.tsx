@@ -22,7 +22,7 @@ export function ResourceBar() {
     <header className="resource-bar">
       <div className="brand">
         <strong>AI_ERP</strong>
-        <span>{source === 'dummy' ? 'Dummy data' : source}</span>
+        <span>{source === 'dummy' ? 'Dummy data' : source === undefined ? '' : `Real data: ${source}`}</span>
       </div>
       <div className="figures">
         {(figures ?? []).map((figure) => (

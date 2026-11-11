@@ -65,6 +65,8 @@ const PO_CHANCE_PER_SUPPLIER_DAY = 0.4;
 const UNACKNOWLEDGED_RATE = 0.015;
 const PARTIAL_RECEIPT_RATE = 0.08;
 const OPENING_CASH = 2_000_000;
+/** How far below zero the seeded bad stock row goes. Enough to make its category untrustworthy. */
+const NEGATIVE_STOCK_UNITS = 60;
 
 const round2 = (value: number): number => Math.round(value * 100) / 100;
 const pad = (value: number, width: number): string => String(value).padStart(width, '0');
@@ -375,10 +377,10 @@ export function generate(options: GenerateOptions = DEFAULT_OPTIONS): Dataset {
         pickedDate: day,
         shippedDate: day,
         deliveredDate: withinRange(addDays(day, 1)),
-        lines: [{ line: 1, productId: sim.product.id, qty: sim.onHand + 6, unitPrice: sim.product.sellPrice }],
+        lines: [{ line: 1, productId: sim.product.id, qty: sim.onHand + NEGATIVE_STOCK_UNITS, unitPrice: sim.product.sellPrice }],
       };
       salesOrders.push(order);
-      sim.onHand -= sim.onHand + 6;
+      sim.onHand = -NEGATIVE_STOCK_UNITS;
       invoice(order, day);
     }
 

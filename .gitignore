@@ -24,3 +24,7 @@ Thumbs.db
 
 # Browser test tool output
 .playwright-mcp/
+
+# Python
+__pycache__/
+*.pyc

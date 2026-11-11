@@ -12,6 +12,7 @@
   },
   "scripts": {
     "dev": "concurrently -k -n api,client -c blue,green \"npm run dev -w @ai-erp/api\" \"npm run dev -w @ai-erp/client\"",
+    "dev:real": "cross-env AI_ERP_DATA_DIR=data/real/lookback npm run dev",
     "build": "npm run build -w @ai-erp/client",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -23,6 +24,7 @@
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.6.6",
     "concurrently": "^10.0.7",
+    "cross-env": "^10.1.0",
     "eslint": "^10.14.0",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",

@@ -2,7 +2,7 @@
  * Resource bar figures. Each figure is built from its rows, so the number shown
  * always equals the sum of the records behind it (CONTEXT principle 4).
  */
-import { daysBetween, type Figure, type FigureId, type FigureRecords } from '@ai-erp/domain';
+import { daysBetween, UNKNOWN_DATE, type Figure, type FigureId, type FigureRecords } from '@ai-erp/domain';
 import { money, round2 } from './format';
 import { must, type Model } from './model';
 import { isPaid, type Snapshot } from './snapshot';
@@ -17,7 +17,7 @@ const LABELS: Record<FigureId, string> = {
 };
 
 const STATUS_TEXT = {
-  back_ordered: 'Waiting for stock',
+  back_ordered: 'Not yet allocated',
   allocated: 'Allocated',
   picked: 'Picked',
   shipped: 'Shipped',
@@ -78,7 +78,7 @@ function openSalesOrderRows(model: Model, snap: Snapshot): { columns: string[]; 
         view.order.id,
         must(model.customer, view.order.customerId, 'customer').name,
         view.order.orderDate,
-        view.order.committedDate,
+        view.order.committedDate >= UNKNOWN_DATE ? 'Not held' : view.order.committedDate,
         view.late ? `${STATUS_TEXT[view.status]}, ${view.daysLate} days late` : STATUS_TEXT[view.status],
         money(view.value),
       ],

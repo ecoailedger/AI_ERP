@@ -10,8 +10,10 @@ import type { Tile } from './iso';
 import type { Layout } from './layout';
 import { BUILDINGS, DOCK_SLOTS, LOADING_SLOTS, LORRY_BAYS, SPOTS, VAN_BAYS, walkPath } from './settlement';
 
-/** How much work one worker handles, and how many workers a building can hold. */
-export const STAFFING: Record<BuildingId, { tasksPerWorker: number; maxWorkers: number }> = {
+export type StaffingLevels = Record<BuildingId, { tasksPerWorker: number; maxWorkers: number }>;
+
+/** The least work one worker handles, and how many workers a building can hold. */
+export const STAFFING: StaffingLevels = {
   goodsIn: { tasksPerWorker: 2, maxWorkers: 6 },
   warehouse: { tasksPerWorker: 8, maxWorkers: 12 },
   sales: { tasksPerWorker: 10, maxWorkers: 8 },
@@ -118,9 +120,26 @@ function endpoints(layout: Layout, state: WorldState, building: BuildingId, item
   }
 }
 
+/** A queue this many times its usual length fills the building. Anything beyond is a backlog. */
+const BUSY_FACTOR = 1.5;
+
+/**
+ * Staffing sized to the business: a building is full when its queue is well beyond its usual length.
+ * So a backlog pile means an unusually busy day, whatever the size of the business.
+ */
+export function staffingLevels(typicalQueue: Partial<Record<BuildingId, number>>): StaffingLevels {
+  return Object.fromEntries(
+    BUILDING_IDS.map((building) => {
+      const { tasksPerWorker, maxWorkers } = STAFFING[building];
+      const scaled = Math.ceil(((typicalQueue[building] ?? 0) * BUSY_FACTOR) / maxWorkers);
+      return [building, { tasksPerWorker: Math.max(tasksPerWorker, scaled), maxWorkers }];
+    }),
+  ) as StaffingLevels;
+}
+
 /** How many workers a building puts on a queue of this length, and how many jobs are left over. */
-export function headcount(building: BuildingId, jobs: number): { workers: number; backlog: number } {
-  const { tasksPerWorker, maxWorkers } = STAFFING[building];
+export function headcount(building: BuildingId, jobs: number, levels: StaffingLevels = STAFFING): { workers: number; backlog: number } {
+  const { tasksPerWorker, maxWorkers } = levels[building];
   const workers = Math.min(maxWorkers, Math.ceil(jobs / tasksPerWorker));
   return { workers, backlog: Math.max(0, jobs - workers * tasksPerWorker) };
 }
@@ -129,7 +148,7 @@ export function headcount(building: BuildingId, jobs: number): { workers: number
 export function staffBuildings(layout: Layout, state: WorldState): Staffing[] {
   return BUILDING_IDS.map((building) => {
     const queue = state.buildings.find((candidate) => candidate.id === building)?.queue ?? [];
-    const { workers, backlog } = headcount(building, queue.length);
+    const { workers, backlog } = headcount(building, queue.length, layout.staffing);
     const handled = queue.slice(0, queue.length - backlog);
     return {
       building,

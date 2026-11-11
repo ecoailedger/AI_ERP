@@ -41,6 +41,9 @@ export function nextWorkday(date: IsoDate): IsoDate {
   return day;
 }
 
+/** Stands in for a date the source does not hold, such as a purchase order with no due date. */
+export const UNKNOWN_DATE: IsoDate = '2099-12-31';
+
 export function clampDate(date: IsoDate, min: IsoDate, max: IsoDate): IsoDate {
   if (date < min) return min;
   if (date > max) return max;

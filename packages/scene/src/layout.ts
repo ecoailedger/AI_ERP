@@ -7,6 +7,7 @@ import type { WorldMaster } from '@ai-erp/domain';
 import { hashString } from './hash';
 import type { Tile } from './iso';
 import { tilesOnPath } from './paths';
+import { staffingLevels, type StaffingLevels } from './workers';
 import {
   GATES,
   MAP_SIZE,
@@ -20,6 +21,12 @@ import {
   type GateId,
   type Rect,
 } from './settlement';
+
+/** Suppliers ranked this high get their own port. The rest share depots. */
+export const PORT_COUNT = 34;
+/** Ring slots kept for the shared depots, spread evenly round the map. */
+const DEPOT_SLOTS = [3, 10, 17, 23, 30, 37] as const;
+export const DEPOT_COUNT = DEPOT_SLOTS.length;
 
 /** Customers ranked this high get their own village. The rest share hamlets. */
 export const VILLAGE_COUNT = 36;
@@ -44,8 +51,11 @@ export interface Place {
 }
 
 export interface PortPlace extends Place {
-  supplierId: string;
+  /** The supplier id for a port, or `depot:n` for a depot shared by small suppliers. */
+  key: string;
+  supplierIds: string[];
   name: string;
+  shared: boolean;
 }
 
 export interface VillagePlace extends Place {
@@ -77,6 +87,8 @@ export interface Layout {
   plots: PlotPlace[];
   /** Road tiles outside the settlement, as "col,row" keys. */
   roadTiles: Set<string>;
+  /** How much work each building's workers get through, sized to this business. */
+  staffing: StaffingLevels;
   portBySupplier: Map<string, PortPlace>;
   homeByCustomer: Map<string, CustomerHome>;
   plotByCategory: Map<string, PlotPlace>;
@@ -128,12 +140,29 @@ export function buildLayout(master: WorldMaster): Layout {
     return { tile, gate, road };
   };
 
-  const portSlots = assignSlots(master.suppliers.map((supplier) => supplier.id), PORT_RING.slots);
-  const ports: PortPlace[] = master.suppliers.flatMap((supplier) => {
+  const major = master.suppliers.filter((supplier) => supplier.rank <= PORT_COUNT);
+  const minor = master.suppliers.filter((supplier) => supplier.rank > PORT_COUNT);
+  const portSlots = assignSlots(major.map((supplier) => supplier.id), PORT_RING.slots, new Set<number>(DEPOT_SLOTS));
+  const ports: PortPlace[] = major.flatMap((supplier) => {
     const slot = portSlots.get(supplier.id);
     if (slot === undefined) return [];
-    return [{ supplierId: supplier.id, name: supplier.name, ...place(ringTile(PORT_RING.radius, PORT_RING.slots, slot)) }];
+    return [{ key: supplier.id, supplierIds: [supplier.id], name: supplier.name, shared: false, ...place(ringTile(PORT_RING.radius, PORT_RING.slots, slot)) }];
   });
+  if (minor.length > 0) {
+    const members: string[][] = DEPOT_SLOTS.map(() => []);
+    for (const supplier of minor) (members[hashString(supplier.id) % DEPOT_COUNT] as string[]).push(supplier.id);
+    DEPOT_SLOTS.forEach((slot, index) => {
+      const supplierIds = members[index] as string[];
+      if (supplierIds.length === 0) return;
+      ports.push({
+        key: `depot:${index}`,
+        supplierIds,
+        name: `${supplierIds.length} small suppliers`,
+        shared: true,
+        ...place(ringTile(PORT_RING.radius, PORT_RING.slots, slot)),
+      });
+    });
+  }
 
   const villages: VillagePlace[] = [];
   const hamletMembers: string[][] = Array.from({ length: HAMLET_COUNT }, () => []);
@@ -176,7 +205,8 @@ export function buildLayout(master: WorldMaster): Layout {
     hamlets,
     plots,
     roadTiles,
-    portBySupplier: new Map(ports.map((port) => [port.supplierId, port])),
+    staffing: staffingLevels(master.typicalQueue),
+    portBySupplier: new Map(ports.flatMap((port) => port.supplierIds.map((id) => [id, port] as const))),
     homeByCustomer,
     plotByCategory: new Map(plots.map((plot) => [plot.categoryId, plot])),
   };

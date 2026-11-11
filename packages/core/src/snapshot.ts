@@ -4,6 +4,7 @@
  */
 import {
   daysBetween,
+  UNKNOWN_DATE,
   type GoodsReceipt,
   type IsoDate,
   type PurchaseInvoice,
@@ -27,6 +28,7 @@ export interface PurchaseOrderView {
   late: boolean;
   daysLate: number;
   unacknowledged: boolean;
+  dueUnknown: boolean;
   arrivingToday: boolean;
 }
 
@@ -102,6 +104,7 @@ function viewPurchaseOrder(model: Model, order: PurchaseOrder, asOf: IsoDate): P
   else if (reached(order.acknowledgedDate, asOf)) status = 'in_transit';
   else status = 'raised';
 
+  const dueUnknown = qtyOutstanding > 0 && dueDate >= UNKNOWN_DATE;
   const late = qtyOutstanding > 0 && dueDate < asOf;
   return {
     order,
@@ -114,6 +117,7 @@ function viewPurchaseOrder(model: Model, order: PurchaseOrder, asOf: IsoDate): P
     late,
     daysLate: late ? daysBetween(dueDate, asOf) : 0,
     unacknowledged: status === 'raised' && daysBetween(order.orderDate, asOf) > UNACKNOWLEDGED_DAYS,
+    dueUnknown,
     arrivingToday,
   };
 }

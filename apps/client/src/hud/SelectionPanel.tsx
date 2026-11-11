@@ -117,11 +117,14 @@ function RecordView({ selection }: { selection: Extract<Selection, { kind: 'reco
   );
 }
 
+const QUEUE_ROWS = 250;
+
 /** A building's queue: the plain list of records it is working through. */
 function QueueView({ id }: { id: BuildingId }) {
   const building = useApp((state) => state.world?.buildings.find((candidate) => candidate.id === id));
+  const levels = useApp((state) => state.layout?.staffing);
   if (!building) return null;
-  const { workers, backlog } = headcount(id, building.queue.length);
+  const { workers, backlog } = headcount(id, building.queue.length, levels);
 
   return (
     <>
@@ -142,7 +145,7 @@ function QueueView({ id }: { id: BuildingId }) {
             </tr>
           </thead>
           <tbody>
-            {building.queue.map((item, index) => (
+            {building.queue.slice(0, QUEUE_ROWS).map((item, index) => (
               <tr key={`${item.kind}:${item.ref.id}:${index}`} className="clickable" onClick={() => actions.selectRecord(item.ref, item.label)}>
                 <td>
                   <i className={`dot ${item.flag}`} />
@@ -155,6 +158,11 @@ function QueueView({ id }: { id: BuildingId }) {
           </tbody>
         </table>
       </div>
+      {building.queue.length > QUEUE_ROWS && (
+        <p className="muted">
+          Showing the first {QUEUE_ROWS} of {building.queue.length.toLocaleString('en-GB')} jobs.
+        </p>
+      )}
     </>
   );
 }

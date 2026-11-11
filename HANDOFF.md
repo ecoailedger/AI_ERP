@@ -4,18 +4,38 @@ Updated 2026-11-11.
 
 ## State
 
-Stage 1 is built: milestones 1.0 to 1.9 are done, 1.10 is half done.
+- **Stage 1 is built.** Milestones 1.0 to 1.9 done, 1.10 half done (the people test is outstanding).
+- **Stage 2 has started.** The world runs on a real look-back from the UK orders mirror: 1 October to 10 November 2026. Milestone 2.1 is done, 2.2 is half done, 2.3 and 2.4 are not started.
+- `npm run check` passes: lint, typecheck, 75 tests, client build.
 
-- `npm run check` passes: lint, typecheck, 73 tests, client build.
-- `npm run dev` starts the API (127.0.0.1:5191) and the world (http://localhost:5190).
-- Checked in a browser: the map, late-lorry queue, workers, record cards, figure drill-down, table view and replay all work, with no console errors. Screenshots are in `docs/progress/`.
+## Run it
 
-## What is left in Stage 1
+| Command | What you get |
+|---|---|
+| `npm run dev` | Dummy data. World on http://localhost:5190, API on 127.0.0.1:5191 |
+| `npm run dev:real` | The real look-back in `data/real/lookback/`. Same ports |
+| `cd ingest && python -m aierp_ingest.snapshot --start 2026-10-01` | Rebuilds the look-back. Uses the cache unless `--refresh` is passed |
 
-1. **The people test (the Stage 1 exit test).** Show it to 3 people. Each should name the late suppliers within 30 seconds, unprompted. Not done: it needs people.
-2. Frame rate has not been measured.
-3. Art is code-drawn shapes. Decide whether hand-drawn pixel art is still wanted.
-4. A static demo build (no API) for hosting. Not started.
+To run both at once, give the second copy other ports: `PORT=5193 AI_ERP_CLIENT_PORT=5192 npm run dev:real`.
+
+The real look-back on this machine was built with `--real-names`. Do not commit or share screenshots of it.
+
+## What is left
+
+Stage 1:
+
+1. The people test: 3 people, each names the late suppliers in 30 seconds, unprompted.
+2. Decide whether hand-drawn pixel art is still wanted.
+3. A static demo build for hosting.
+
+Stage 2:
+
+1. **Old open orders swamp the late signal on real data.** Many PO lines are open long past their due date and look like orders never closed. Decide a rule (for example: more than 90 days overdue is "stale", shown apart from "late"), then build it in `packages/core`.
+2. **2.2 daily snapshot.** Nothing runs the ingest each day, so real history is not building up. Each run today rebuilds the past from the current position.
+3. **2.3 reconciliation.** Compare the world's totals for a date with the Slipstream figures. Not started. Nothing in the real look-back has been checked against a trusted figure yet.
+4. **2.4 fog rules on real data.** Only negative rebuilt stock and undated orders fog today.
+5. Send the data team the five questions at the end of DATA-MAPPING section 11.
+6. State responses are 2 to 3 MB a day on real data. Fine locally; trim before hosting.
 
 ## How it fits together
 
@@ -23,26 +43,24 @@ Stage 1 is built: milestones 1.0 to 1.9 are done, 1.10 is half done.
 |---|---|
 | `packages/domain` | Canonical dataset schema (zod), world-state API types, date helpers |
 | `packages/core` | `createCore(dataset)`: state for any date, exception rules, figures with their records, record cards, events |
-| `packages/scene` | Layout (ports, villages, roads), vehicles per frame, workers and their schedules, A* |
-| `apps/api` | Fastify over the core: `/master`, `/state`, `/events`, `/records/:type/:id`, `/figures/:name/records` |
+| `packages/scene` | Layout (ports, depots, villages, roads), vehicles per frame, workers and their schedules, A* |
+| `apps/api` | Fastify over the core. `AI_ERP_DATA_DIR` picks the dataset |
 | `apps/client` | PixiJS renderer (`world/`), React panels (`hud/`), app state (`store.ts`) |
-| `tools/dummygen` | Seeded day-by-day business simulation that writes `data/dummy/` |
+| `tools/dummygen` | Seeded business simulation that writes `data/dummy/` |
+| `ingest` | Python. Read-only pulls from the mirror, cached, mapped to the canonical dataset |
 
 Rules the code enforces:
 
-- The core never looks at facts dated after the state date, so replay cannot peek ahead.
+- The core never looks at facts dated after the state date.
 - Every resource bar figure is the sum of its record rows. Tests check this for every day.
 - ESLint stops the client and scene importing the core, and the core importing the game.
-- `apps/api/src/world.test.ts` checks, for all 90 days, that what is drawn matches what the core reports.
+- `apps/api/src/world.test.ts` checks, for all 90 dummy days, that what is drawn matches what the core reports.
+- `ingest` has no write function. Real data, `.env` and the cache are gitignored.
 
 ## Notes
 
-- Ports: client 5190, API 5191. Vite's 5173 and port 5180 are used by other projects on the dev machine.
-- If `npm run dev` says a port is in use, an earlier run is still alive: stop the old `node` processes.
+- Fabric sign-in is a device code, cached by Windows. `.env` points at a sign-in shared with other projects on this machine.
+- Workspace and item ids live in `.env` only. The repo is public: keep them out.
+- If `npm run dev` says a port is in use, an earlier run is still alive.
 - After changing `tools/dummygen`, run `npm run generate -w @ai-erp/dummygen`. A test fails if `data/dummy` is out of date.
-- Business thresholds (late, aged, stale) live in `packages/core/src/rules.ts`. Staffing levels live in `packages/scene/src/workers.ts`.
-- `data/real/`, `.env*`, `*.parquet` and `*.sqlite` are gitignored. Dummy data only in this repo.
-
-## Next
-
-Run the people test. Then Stage 2, milestone **2.1**: the Python ingest adapters that map the UK orders mirror into the canonical dataset (docs/DATA-MAPPING.md, docs/BUILD-PLAN.md section 8). It needs Fabric sign-in, and the open questions in DATA-MAPPING section 10 answered for the unconfirmed columns.
+- Business thresholds live in `packages/core/src/rules.ts`. Staffing lives in `packages/scene/src/workers.ts` and scales with `master.typicalQueue`.

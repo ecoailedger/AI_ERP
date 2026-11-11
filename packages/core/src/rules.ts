@@ -6,6 +6,12 @@ export const AGE_BAND_DAYS = [180, 365, 730] as const;
 /** A category shows an age band once this share of its value is that old. */
 export const AGED_VALUE_SHARE = 0.3;
 
+/**
+ * A category's stock figure stops being trustworthy once rows that cannot be right (negative stock)
+ * are worth this share of it. Below that, the rows are listed as untrusted but the pile is not fogged.
+ */
+export const UNTRUSTED_VALUE_SHARE = 0.01;
+
 /** A delivery should leave the dock within this many days. */
 export const DOCK_STALE_DAYS = 1;
 

@@ -91,6 +91,8 @@ export interface PurchaseOrderState {
   daysLate: number;
   /** Raised a while ago and the supplier has not confirmed it. */
   unacknowledged: boolean;
+  /** The source holds no due date for this order, so it cannot be placed on the road or called late. */
+  dueUnknown: boolean;
   /** A delivery for this order was received on the state date. */
   arrivingToday: boolean;
   qtyOutstanding: number;
@@ -187,6 +189,7 @@ export interface BuildingState {
 export type AlertKind =
   | 'po_late'
   | 'po_unacknowledged'
+  | 'po_no_due_date'
   | 'dock_stale'
   | 'stock_aged'
   | 'stock_untrusted'
@@ -232,10 +235,13 @@ export interface WorldState {
 export interface WorldMaster {
   source: string;
   range: { start: IsoDate; end: IsoDate };
-  suppliers: { id: string; name: string }[];
+  /** `rank` 1 is the biggest supplier by value ordered. */
+  suppliers: { id: string; name: string; rank: number }[];
   /** `rank` 1 is the biggest customer by revenue over the whole range. */
   customers: { id: string; name: string; rank: number }[];
   categories: { id: string; name: string }[];
+  /** The usual length of each function's queue. A queue well beyond it is a backlog. */
+  typicalQueue: Record<BuildingId, number>;
   simulated: string[];
 }
 

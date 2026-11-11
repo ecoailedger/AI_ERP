@@ -47,7 +47,13 @@ export interface PileSprite {
 }
 
 export interface PortSprite {
-  supplierId: string;
+  /** Matches PortPlace.key. */
+  key: string;
+  /** Set for a port that belongs to one supplier. Picks its colour. */
+  supplierId: string | null;
+  /** Kept dark because some of its orders cannot be placed in time. */
+  fogged: boolean;
+  fogReason: string;
   /** Containers waiting at the port: open orders, capped. */
   containers: number;
   openCount: number;
@@ -175,7 +181,8 @@ export function buildFrame(layout: Layout, state: WorldState, dayFraction: numbe
         daysLate: 0,
         label: `${order.id} from ${name}: unloading`,
       });
-    } else if (order.status === 'raised') {
+    } else if (order.status === 'raised' || order.dueUnknown) {
+      // Not confirmed, or no due date held: either way it cannot be placed on the road.
       const list = waiting.get(order.supplierId) ?? [];
       list.push(order);
       waiting.set(order.supplierId, list);
@@ -219,6 +226,7 @@ export function buildFrame(layout: Layout, state: WorldState, dayFraction: numbe
     if (!port) continue;
     const name = supplierName.get(supplierId) ?? supplierId;
     const unconfirmed = orders.filter((order) => order.unacknowledged);
+    const undated = orders.filter((order) => order.dueUnknown);
     const worst = orders.reduce((max, order) => Math.max(max, order.daysLate), 0);
     const start = pointAlong(centred(port.road), 1.6);
     vehicles.push({
@@ -233,9 +241,11 @@ export function buildFrame(layout: Layout, state: WorldState, dayFraction: numbe
       late: worst > 0,
       daysLate: worst,
       label:
-        unconfirmed.length > 0
-          ? `${orders.length} at ${name} not yet confirmed by the supplier`
-          : `${orders.length} at ${name}, just raised`,
+        undated.length > 0
+          ? `${undated.length} at ${name} with no due date`
+          : unconfirmed.length > 0
+            ? `${orders.length} at ${name} not yet confirmed by the supplier`
+            : `${orders.length} at ${name}, just raised`,
     });
   }
 
@@ -368,17 +378,31 @@ export function buildFrame(layout: Layout, state: WorldState, dayFraction: numbe
     label: `${pile.name}: ${short(pile.value)} in stock${pile.ageBand > 0 ? `, ${short(pile.agedValue)} ageing` : ''}`,
   }));
 
-  const ports: PortSprite[] = state.suppliers.map((supplier) => ({
-    supplierId: supplier.id,
-    containers: Math.min(6, supplier.openPoCount),
-    openCount: supplier.openPoCount,
-    lateCount: supplier.latePoCount,
-    worstDaysLate: supplier.worstDaysLate,
-    label:
-      supplier.latePoCount > 0
-        ? `${supplier.name}: ${supplier.latePoCount} of ${supplier.openPoCount} orders late, worst ${supplier.worstDaysLate} days`
-        : `${supplier.name}: ${supplier.openPoCount} open orders`,
-  }));
+  const supplierById = new Map(state.suppliers.map((supplier) => [supplier.id, supplier]));
+  const fogBySupplier = new Map(state.fog.filter((flag) => flag.scope === 'supplier').map((flag) => [flag.id, flag.reason]));
+  const ports: PortSprite[] = layout.ports.map((port) => {
+    const members = port.supplierIds.flatMap((id) => supplierById.get(id) ?? []);
+    const openCount = members.reduce((sum, supplier) => sum + supplier.openPoCount, 0);
+    const lateCount = members.reduce((sum, supplier) => sum + supplier.latePoCount, 0);
+    const worstDaysLate = members.reduce((max, supplier) => Math.max(max, supplier.worstDaysLate), 0);
+    const fogged = port.supplierIds.filter((id) => fogBySupplier.has(id));
+    return {
+      key: port.key,
+      supplierId: port.shared ? null : (port.supplierIds[0] ?? null),
+      containers: Math.min(6, openCount),
+      openCount,
+      lateCount,
+      worstDaysLate,
+      fogged: fogged.length > 0,
+      fogReason: port.shared
+        ? `${fogged.length} of these suppliers have open orders with no due date`
+        : (fogBySupplier.get(port.supplierIds[0] ?? '') ?? ''),
+      label:
+        lateCount > 0
+          ? `${port.name}: ${lateCount} of ${openCount} orders late, worst ${worstDaysLate} days`
+          : `${port.name}: ${openCount} open orders`,
+    };
+  });
 
   const biggestCustomer = Math.max(1, ...state.customers.map((customer) => customer.revenue));
   const villages: VillageSprite[] = layout.villages.flatMap((village) => {

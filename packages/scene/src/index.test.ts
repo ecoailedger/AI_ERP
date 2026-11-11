@@ -8,6 +8,7 @@ import {
   findPath,
   GATES,
   hashUnit,
+  headcount,
   MAP_SIZE,
   pathLength,
   perimeterRoute,
@@ -30,9 +31,10 @@ function master(supplierCount = 25, customerCount = 120): WorldMaster {
   return {
     source: 'test',
     range: { start: '2026-08-03', end: '2026-10-31' },
-    suppliers: Array.from({ length: supplierCount }, (_, i) => ({ id: `SUP${String(i + 1).padStart(3, '0')}`, name: `Supplier ${i + 1}` })),
+    suppliers: Array.from({ length: supplierCount }, (_, i) => ({ id: `SUP${String(i + 1).padStart(3, '0')}`, name: `Supplier ${i + 1}`, rank: i + 1 })),
     customers: Array.from({ length: customerCount }, (_, i) => ({ id: `CUS${String(i + 1).padStart(4, '0')}`, name: `Customer ${i + 1}`, rank: i + 1 })),
     categories: Array.from({ length: 12 }, (_, i) => ({ id: `CAT${String(i + 1).padStart(2, '0')}`, name: `Category ${i + 1}` })),
+    typicalQueue: { goodsIn: 0, warehouse: 0, sales: 0, accounts: 0, dispatch: 0 },
     simulated: [],
   };
 }
@@ -48,6 +50,7 @@ function order(id: string, patch: Partial<PurchaseOrderState> = {}): PurchaseOrd
     late: false,
     daysLate: 0,
     unacknowledged: false,
+    dueUnknown: false,
     arrivingToday: false,
     qtyOutstanding: 10,
     value: 100,
@@ -61,7 +64,7 @@ function state(patch: Partial<WorldState> = {}): WorldState {
   return {
     asOf: '2026-09-11',
     figures: [],
-    suppliers: base.suppliers.map((s) => ({ ...s, openPoCount: 0, latePoCount: 0, openPoValue: 0, worstDaysLate: 0 })),
+    suppliers: base.suppliers.map((s) => ({ id: s.id, name: s.name, openPoCount: 0, latePoCount: 0, openPoValue: 0, worstDaysLate: 0 })),
     customers: base.customers.map((c) => ({
       id: c.id,
       name: c.name,
@@ -222,6 +225,19 @@ describe('layout', () => {
     expect(bigger.ports).toHaveLength(26);
   });
 
+  it('gives small suppliers a shared depot once there are too many for a port each', () => {
+    const crowded = buildLayout(master(200));
+    const own = crowded.ports.filter((port) => !port.shared);
+    const depots = crowded.ports.filter((port) => port.shared);
+    expect(own).toHaveLength(34);
+    expect(depots.reduce((sum, depot) => sum + depot.supplierIds.length, 0)).toBe(166);
+    expect(crowded.portBySupplier.size).toBe(200);
+    const tiles = new Set(crowded.ports.map((port) => `${port.tile.col},${port.tile.row}`));
+    expect(tiles.size).toBe(crowded.ports.length);
+    // The ports that existed before are where they were.
+    expect(crowded.ports.slice(0, 25).map((port) => port.tile)).toEqual(layout.ports.map((port) => port.tile));
+  });
+
   it('gives bigger customers the inner ring', () => {
     const distance = (customerId: string): number => {
       const village = layout.villages.find((candidate) => candidate.customerId === customerId);
@@ -314,6 +330,15 @@ describe('workers', () => {
     const staffed = staffBuildings(layout, withPicks(capacity + 7)).find((entry) => entry.building === 'warehouse');
     expect(staffed).toMatchObject({ workers: maxWorkers, backlog: 7 });
     expect(staffed?.tasks).toHaveLength(capacity);
+  });
+
+  it('sizes staffing to the business, so a backlog means an unusually busy day', () => {
+    const big = buildLayout({ ...master(), typicalQueue: { goodsIn: 100, warehouse: 800, sales: 0, accounts: 0, dispatch: 500 } });
+    const warehouse = big.staffing.warehouse;
+    expect(warehouse.tasksPerWorker * warehouse.maxWorkers).toBeGreaterThanOrEqual(1200);
+    expect(headcount('warehouse', 800, big.staffing).backlog).toBe(0);
+    expect(headcount('warehouse', 1500, big.staffing).backlog).toBeGreaterThan(0);
+    expect(big.staffing.sales).toEqual(STAFFING.sales);
   });
 
   it('gives every worker a job that names a record', () => {

@@ -55,6 +55,7 @@ describe('the world, every day', () => {
         const queue = state.buildings.find((building) => building.id === entry.building)?.queue ?? [];
         expect(entry.tasks.length + entry.backlog, `${entry.building} on ${day}`).toBe(queue.length);
         expect(entry.workers).toBeLessThanOrEqual(STAFFING[entry.building].maxWorkers);
+        expect(entry.backlog).toBe(Math.max(0, queue.length - entry.workers * layout.staffing[entry.building].tasksPerWorker));
         if (queue.length === 0) expect(entry.workers).toBe(0);
         const refs = new Set(queue.map((item) => `${item.kind}:${item.ref.id}`));
         for (const task of entry.tasks) expect(refs.has(`${task.kind}:${task.ref.id}`)).toBe(true);

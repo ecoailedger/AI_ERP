@@ -19,11 +19,20 @@ import {
 import { figureRecords } from './figures';
 import { money, moneyShort, plural, round2 } from './format';
 import { must, type Model } from './model';
-import { AGE_BAND_DAYS, AGED_VALUE_SHARE, DEBT_CHASE_DAYS, PO_LATE_SERIOUS_DAYS, REVENUE_WINDOW_DAYS } from './rules';
+import {
+  AGE_BAND_DAYS,
+  AGED_VALUE_SHARE,
+  DEBT_CHASE_DAYS,
+  PO_LATE_SERIOUS_DAYS,
+  REVENUE_WINDOW_DAYS,
+  UNTRUSTED_VALUE_SHARE,
+} from './rules';
 import { isPaid, type Snapshot } from './snapshot';
 
+const MAX_ALERTS = 60;
+
 function stockpiles(model: Model, snap: Snapshot): StockpileState[] {
-  const piles = new Map<string, StockpileState & { aged: [number, number, number] }>();
+  const piles = new Map<string, StockpileState & { aged: [number, number, number]; negativeValue: number }>();
   for (const category of model.ds.categories) {
     piles.set(category.id, {
       categoryId: category.id,
@@ -35,6 +44,7 @@ function stockpiles(model: Model, snap: Snapshot): StockpileState[] {
       agedValue: 0,
       untrusted: false,
       aged: [0, 0, 0],
+      negativeValue: 0,
     });
   }
   for (const product of model.ds.products) {
@@ -42,7 +52,7 @@ function stockpiles(model: Model, snap: Snapshot): StockpileState[] {
     if (qty === 0) continue;
     const pile = must(piles, product.categoryId, 'category');
     if (qty < 0) {
-      pile.untrusted = true;
+      pile.negativeValue += -qty * product.unitCost;
       continue;
     }
     const value = qty * product.unitCost;
@@ -54,7 +64,8 @@ function stockpiles(model: Model, snap: Snapshot): StockpileState[] {
       if (age > days) pile.aged[band as 0 | 1 | 2] += value;
     });
   }
-  return [...piles.values()].map(({ aged, ...pile }) => {
+  return [...piles.values()].map(({ aged, negativeValue, ...pile }) => {
+    pile.untrusted = negativeValue > 0 && negativeValue >= pile.value * UNTRUSTED_VALUE_SHARE;
     let ageBand: StockpileState['ageBand'] = 0;
     if (pile.value > 0) {
       if (aged[2] / pile.value >= AGED_VALUE_SHARE) ageBand = 3;
@@ -91,6 +102,7 @@ export function buildState(model: Model, snap: Snapshot): WorldState {
       late: view.late,
       daysLate: view.daysLate,
       unacknowledged: view.unacknowledged,
+      dueUnknown: view.dueUnknown,
       arrivingToday: view.arrivingToday,
       qtyOutstanding: view.qtyOutstanding,
       value: round2(view.valueOutstanding),
@@ -239,13 +251,14 @@ export function buildState(model: Model, snap: Snapshot): WorldState {
     if (order.orderDate === asOf) {
       sales.push({ ...base, kind: 'enter_order', label: `Entering ${order.id}`, detail: customer, flag: 'ok' });
     }
-    if (view.status === 'back_ordered' && order.orderDate < asOf) {
+    // An order waiting for stock only becomes work for sales once its committed date has gone.
+    if (view.status === 'back_ordered' && view.late) {
       sales.push({
         ...base,
         kind: 'chase_stock',
         label: `Chasing stock for ${order.id}`,
-        detail: view.late ? `${customer}, ${view.daysLate} days past committed date` : `${customer}, waiting for stock`,
-        flag: view.late ? 'late' : 'warn',
+        detail: `${customer}, ${view.daysLate} days past committed date`,
+        flag: 'late',
       });
     }
     if (view.status === 'allocated' || order.pickedDate === asOf) {
@@ -322,6 +335,23 @@ export function buildState(model: Model, snap: Snapshot): WorldState {
       weight: daysBetween(order.orderDate, asOf),
     });
   }
+  const noDueDate = new Map<string, number>();
+  for (const order of purchaseOrders) {
+    if (order.dueUnknown) noDueDate.set(order.supplierId, (noDueDate.get(order.supplierId) ?? 0) + 1);
+  }
+  for (const [supplierId, count] of noDueDate) {
+    const reason = `${plural(count, 'open order')} with no due date, so nobody can say when they will arrive`;
+    fog.push({ scope: 'supplier', id: supplierId, reason });
+    alerts.push({
+      id: `po_no_due_date:${supplierId}`,
+      kind: 'po_no_due_date',
+      severity: 'medium',
+      title: `${supplierName(supplierId)} has orders with no due date`,
+      detail: reason,
+      ref: { type: 'supplier', id: supplierId },
+      weight: count / 10,
+    });
+  }
   for (const pallet of dock) {
     if (!pallet.stale) continue;
     alerts.push({
@@ -336,7 +366,7 @@ export function buildState(model: Model, snap: Snapshot): WorldState {
   }
   for (const pile of piles) {
     if (pile.untrusted) {
-      const reason = 'A product shows negative stock, so this figure cannot be trusted';
+      const reason = 'Products here show negative stock, so this figure cannot be trusted';
       fog.push({ scope: 'category', id: pile.categoryId, reason });
       alerts.push({
         id: `stock_untrusted:${pile.categoryId}`,
@@ -410,7 +440,8 @@ export function buildState(model: Model, snap: Snapshot): WorldState {
     paymentsIn,
     billsIn,
     buildings,
-    alerts: alerts.map(({ id, kind, severity, title, detail, ref }): Alert => ({ id, kind, severity, title, detail, ref })),
+    // The most pressing alerts only. Everything else is still on the map and in the table view.
+    alerts: alerts.slice(0, MAX_ALERTS).map(({ id, kind, severity, title, detail, ref }): Alert => ({ id, kind, severity, title, detail, ref })),
     fog,
   };
 }

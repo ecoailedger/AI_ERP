@@ -1,5 +1,5 @@
 /** Record cards: one record, as it stood on a date, with where it came from and what it links to. */
-import { daysBetween, type IsoDate, type RecordCard, type RecordRef, type RecordType } from '@ai-erp/domain';
+import { daysBetween, UNKNOWN_DATE, type IsoDate, type RecordCard, type RecordRef, type RecordType } from '@ai-erp/domain';
 import { money, plural } from './format';
 import type { Model } from './model';
 import { AGE_BAND_DAYS } from './rules';
@@ -40,6 +40,7 @@ export function recordCard(model: Model, snap: Snapshot, ref: RecordRef): Record
       const supplier = model.supplier.get(order.supplierId);
       let status: Status;
       if (view.late) status = { text: `Late by ${plural(view.daysLate, 'day')}`, flag: 'late' };
+      else if (view.dueUnknown) status = { text: 'No due date held', flag: 'warn' };
       else if (view.unacknowledged) status = { text: 'Supplier has not confirmed', flag: 'warn' };
       else if (view.status === 'received') status = { text: 'Received in full', flag: 'ok' };
       else if (view.status === 'partly_received') status = { text: 'Part received', flag: 'ok' };
@@ -53,8 +54,8 @@ export function recordCard(model: Model, snap: Snapshot, ref: RecordRef): Record
         status,
         fields: [
           { label: 'Ordered', value: order.orderDate },
-          { label: 'Due', value: view.dueDate },
-          { label: 'Originally due', value: view.originalDueDate },
+          { label: 'Due', value: view.dueUnknown ? 'Not held' : view.dueDate },
+          { label: 'Originally due', value: view.originalDueDate >= UNKNOWN_DATE ? 'Not held' : view.originalDueDate },
           { label: 'Confirmed by supplier', value: shown(order.acknowledgedDate, asOf) },
           { label: 'Still to arrive', value: `${plural(view.qtyOutstanding, 'unit')}, ${money(view.valueOutstanding)}` },
         ],
@@ -120,7 +121,7 @@ export function recordCard(model: Model, snap: Snapshot, ref: RecordRef): Record
       else if (view.status === 'shipped') status = { text: 'On its way to the customer', flag: 'ok' };
       else if (view.status === 'picked') status = { text: 'Picked, waiting to ship', flag: 'ok' };
       else if (view.status === 'allocated') status = { text: 'Stock allocated, waiting to be picked', flag: 'ok' };
-      else status = { text: 'Waiting for stock', flag: 'warn' };
+      else status = { text: 'Not yet allocated', flag: 'warn' };
       const invoice = model.salesInvoiceByOrder.get(order.id);
       return base({
         title: `Sales order ${order.id}`,
@@ -128,7 +129,7 @@ export function recordCard(model: Model, snap: Snapshot, ref: RecordRef): Record
         status,
         fields: [
           { label: 'Ordered', value: order.orderDate },
-          { label: 'Committed', value: order.committedDate },
+          { label: 'Committed', value: order.committedDate >= UNKNOWN_DATE ? 'Not held' : order.committedDate },
           { label: 'Allocated', value: shown(order.allocatedDate, asOf) },
           { label: 'Picked', value: shown(order.pickedDate, asOf) },
           { label: 'Shipped', value: shown(order.shippedDate, asOf) },
@@ -227,7 +228,7 @@ export function recordCard(model: Model, snap: Snapshot, ref: RecordRef): Record
           rows: open.map((view) => [
             view.order.id,
             view.dueDate,
-            view.late ? `${view.daysLate} days late` : view.status === 'raised' ? 'Not confirmed' : 'On its way',
+            view.late ? `${view.daysLate} days late` : view.dueUnknown ? 'No due date' : view.status === 'raised' ? 'Not confirmed' : 'On its way',
             money(view.valueOutstanding),
           ]),
         },
