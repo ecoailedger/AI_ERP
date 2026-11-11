@@ -11,6 +11,7 @@ This is a proof of concept. It is not a production ERP and it never writes to a 
 - [Project Initiation Document](docs/PID.md): why, what, scope, stages, risks.
 - [Context](docs/CONTEXT.md): the concept, domain, design rules and guardrails. Read this before writing any code, human or AI agent.
 - [Data mapping](docs/DATA-MAPPING.md): every Fabric table and column the world needs, with gaps.
+- [Build plan](docs/BUILD-PLAN.md): stack, sim people, world generation, architecture, data connections, milestones.
 
 ## Status
 
